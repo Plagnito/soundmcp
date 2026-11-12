@@ -25,10 +25,10 @@ Aucune dépendance. Node.js ≥ 18 suffit.
 Via npm (recommandé) :
 
 ```bash
-npm install -g soundmcp
+npm install -g @plagnito/soundmcp
 ```
 
-Ou directement via `npx -y soundmcp` (télécharge et lance à la volée). Depuis les sources :
+Ou directement via `npx -y @plagnito/soundmcp` (télécharge et lance à la volée). Depuis les sources :
 
 ```bash
 git clone https://github.com/Plagnito/soundmcp.git
@@ -46,21 +46,21 @@ Dans la configuration OpenCode (`opencode.json` du projet ou global) :
     "servers": {
       "soundmcp": {
         "type": "local",
-        "command": ["npx", "-y", "soundmcp"]
+        "command": ["npx", "-y", "@plagnito/soundmcp"]
       }
     }
   }
 }
 ```
 
-Ou en une commande : `opencode mcp add soundmcp -- npx -y soundmcp`
+Ou en une commande : `opencode mcp add soundmcp -- npx -y @plagnito/soundmcp`
 
-Avec les sources en local, utilise plutôt `"command": ["node", "D:/chemin/soundmcp/src/index.js"]` ; avec `npm install -g soundmcp`, `"command": "soundmcp"` fonctionne aussi.
+Avec les sources en local, utilise plutôt `"command": ["node", "D:/chemin/soundmcp/src/index.js"]` ; avec `npm install -g @plagnito/soundmcp`, `"command": "soundmcp"` fonctionne aussi.
 
 ## Brancher dans Claude Code
 
 ```bash
-claude mcp add soundmcp -- npx -y soundmcp
+claude mcp add soundmcp -- npx -y @plagnito/soundmcp
 ```
 
 Ou dans `.mcp.json` du projet :
@@ -70,7 +70,7 @@ Ou dans `.mcp.json` du projet :
   "mcpServers": {
     "soundmcp": {
       "command": "npx",
-      "args": ["-y", "soundmcp"]
+      "args": ["-y", "@plagnito/soundmcp"]
     }
   }
 }
