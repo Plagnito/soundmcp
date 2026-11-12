@@ -20,10 +20,11 @@ const PROTOCOL_FALLBACK = '2025-06-18';
 
 const INSTRUCTIONS = [
   'SoundMCP compose de la musique et des effets sonores pour jeux et médias.',
-  'Outils : list_styles (catalogue), create_music (piste WAV/MIDI), create_sfx (effets).',
+  'Outils : list_styles (catalogue), create_music (piste WAV/MIDI), create_sfx (effets), create_ambience (ambiance en boucle parfaite).',
   'Flux conseillé : list_styles → create_music (choisis style/durée/tonalité) → itère en changeant le seed.',
   'La même graine (seed) reproduit exactement la même musique : note-le pour garder la version retenue.',
-  'Pour un fond de jeu en continu, garde loop: true (boucle sans raccord).',
+  'Pour un fond de jeu en continu, garde loop: true (boucle sans raccord) ; create_ambience produit toujours une boucle parfaite.',
+  'Options techniques sur les trois outils de rendu : sampling_rate (22050/44100/48000) et mono (WAV 1 canal, taille moitié).',
 ].join(' ');
 
 const log = (...a) => {

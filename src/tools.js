@@ -10,10 +10,21 @@ const { createSong } = require('./composer');
 const { renderSong, writeWav } = require('./dsp');
 const { writeMidi } = require('./midi');
 const { createSfx, SFX_IDS, SFX_KINDS } = require('./sfx');
+const { createAmbience, AMBIENCE_IDS, AMBIENCE_KINDS } = require('./ambience');
 const { STYLES, STYLE_IDS } = require('./styles');
 const { randomSeed } = require('./rng');
 
 const DEFAULT_OUTPUT_DIR = path.join(__dirname, '..', 'output');
+const SR_CHOICES = [22050, 44100, 48000];
+
+/** Valide et borne les options techniques communes (sampling rate, mono). */
+function techOptions(args) {
+  const sr = SR_CHOICES.includes(args.sampling_rate) ? args.sampling_rate : 44100;
+  if (args.sampling_rate !== undefined && !SR_CHOICES.includes(args.sampling_rate)) {
+    throw new Error(`sampling_rate invalide: ${args.sampling_rate}. Choix: ${SR_CHOICES.join(', ')}.`);
+  }
+  return { sr, mono: !!args.mono };
+}
 
 const slug = (s) =>
   String(s).toLowerCase().normalize('NFD')
@@ -38,7 +49,7 @@ const TOOLS = [
   },
   {
     name: 'create_music',
-    description: 'Compose et rend une piste musicale de jeu (WAV stéréo 44.1 kHz 16 bits, MIDI GM, ou les deux). 14 styles : ambient, lofi, chiptune, epic, mystery, fantasy, upbeat, sad, dungeon, menu, suspense, victory, village, combat. Déterministe : même seed = même musique. loop: true produit une boucle sans raccord audible, parfaite en fond de jeu.',
+    description: 'Compose et rend une piste musicale de jeu (WAV stéréo, MIDI GM, ou les deux). 19 styles : ambient, lofi, chiptune, epic, mystery, fantasy, upbeat, sad, dungeon, menu, suspense, victory, village, combat, rock, jazz, horror, hiphop, space. Déterministe : même seed = même musique. loop: true produit une boucle sans raccord audible, parfaite en fond de jeu.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -78,6 +89,17 @@ const TOOLS = [
           default: 'wav',
           description: 'Format de sortie : wav (audio prêt), midi (éditable dans un DAW), both.',
         },
+        sampling_rate: {
+          type: 'integer',
+          enum: [22050, 44100, 48000],
+          default: 44100,
+          description: 'Fréquence d\'échantillonnage du WAV en Hz. 44100 par défaut (qualité CD) ; 22050 divise la taille par deux, suffisant pour les fonds de jeu.',
+        },
+        mono: {
+          type: 'boolean',
+          default: false,
+          description: 'Exporte en mono (taille moitié). À réserver aux fonds ambisoniques ou aux contraintes de taille.',
+        },
         output_dir: {
           type: 'string',
           description: 'Dossier de sortie. Par défaut : <projet>/output.',
@@ -92,7 +114,7 @@ const TOOLS = [
   },
   {
     name: 'create_sfx',
-    description: 'Crée un effet sonore de jeu prêt à l\'emploi (WAV) : jump, coin, pickup, hit, damage, explosion, whoosh, laser, powerup, levelup, heal, click, hover, error, success, footstep, door, splash, heartbeat, alarm, sword, bubble. Déterministe via seed.',
+    description: 'Crée un effet sonore de jeu prêt à l\'emploi (WAV 16 bits, 32 types) : action (jump, coin, pickup, hit, damage, powerup, levelup), combat (explosion, laser, sword, gunShoot, bowShoot), nature (thunder, splash, whoosh), UI (click, hover, error, success, menuOpen, chestOpen, questComplete), personnages (footstep, door, heartbeat, alarm, ghost, forge, bubble, magic, teleport). Déterministe via seed.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -112,6 +134,65 @@ const TOOLS = [
           maximum: 1,
           default: 1,
           description: 'Volume relatif (0.05 à 1).',
+        },
+        sampling_rate: {
+          type: 'integer',
+          enum: [22050, 44100, 48000],
+          default: 44100,
+          description: 'Fréquence d\'échantillonnage du WAV en Hz (22050 = taille moitié, ok pour les UI/retro).',
+        },
+        mono: {
+          type: 'boolean',
+          default: false,
+          description: 'Exporte en mono (taille moitié).',
+        },
+        output_dir: {
+          type: 'string',
+          description: 'Dossier de sortie. Par défaut : <projet>/output.',
+        },
+      },
+      required: ['kind'],
+    },
+  },
+  {
+    name: 'create_ambience',
+    description: 'Crée une ambiance de jeu en boucle parfaite (WAV 16 bits) : rain (pluie), storm (orage), wind (vent), forest (forêt), campfire (feu de camp), ocean (océan), river (rivière), cave (grotte), spaceship (vaisseau), cafe (café), night (nuit). Couches de bruit continu + événements stochastiques (gouttes, oiseaux, tonnerre, vagues…) ; le crossfade circulaire rend le raccord de boucle inaudible. Déterministe via seed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: {
+          type: 'string',
+          enum: AMBIENCE_IDS,
+          description: 'Type d\'ambiance.',
+        },
+        duration_seconds: {
+          type: 'number',
+          minimum: 5,
+          maximum: 600,
+          description: 'Durée de la boucle en secondes (5 à 600). Par défaut : 45-60 s selon l\'ambiance. Une boucle plus longue = événements moins répétitifs.',
+        },
+        volume: {
+          type: 'number',
+          minimum: 0.05,
+          maximum: 1,
+          default: 1,
+          description: 'Volume relatif (0.05 à 1).',
+        },
+        seed: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Graine : même seed = même ambiance.',
+        },
+        sampling_rate: {
+          type: 'integer',
+          enum: [22050, 44100, 48000],
+          default: 44100,
+          description: 'Fréquence d\'échantillonnage du WAV en Hz. 22050 recommandé pour les fonds d\'ambiance (taille moitié, qualité largement suffisante).',
+        },
+        mono: {
+          type: 'boolean',
+          default: false,
+          description: 'Exporte en mono (taille moitié).',
         },
         output_dir: {
           type: 'string',
@@ -136,6 +217,14 @@ function listStylesText() {
     lines.push(`   Idéal pour : ${s.use.join(', ')}`);
     lines.push('');
   }
+  lines.push('## Ambiances disponibles (create_ambience)');
+  lines.push('');
+  lines.push('Boucles de fond de jeu en continu — croise-les avec les musiques (ex. cave + dungeon).');
+  lines.push('');
+  for (const id of AMBIENCE_IDS) {
+    lines.push(`**${id}** — ${AMBIENCE_KINDS[id].desc}`);
+  }
+  lines.push('');
   lines.push('## Effets sonores disponibles (create_sfx)');
   lines.push('');
   for (const id of SFX_IDS) {
@@ -145,8 +234,10 @@ function listStylesText() {
   lines.push('## Astuces');
   lines.push(`- ${TIP_SEED}`);
   lines.push(`- ${TIP_LOOP}`);
+  lines.push('- Ambiance en boucle : create_ambience produit toujours une boucle parfaite (crossfade intégré). Parfait pour recouvrir une musique : ambiance à ~40 % de volume sous la piste musicale.');
+  lines.push('- Fichiers plus légers : sampling_rate 22050 (taille moitié) et/ou mono — largement suffisant pour les fonds de jeu.');
   lines.push('- Tonalité : accepte noms EN et FR — "A minor", "la mineur", "F# dorien", "C majeur", "F# mixolydien"…');
-  lines.push('- WAV : stéréo 44.1 kHz 16 bits, prêt à l\'emploi. MIDI : format GM, éditable dans un DAW.');
+  lines.push('- WAV : stéréo 16 bits, prêt à l\'emploi. MIDI : format GM, éditable dans un DAW (musique uniquement).');
   return lines.join('\n');
 }
 
@@ -206,6 +297,7 @@ async function callTool(name, args = {}) {
       seed,
       loop: args.loop,
       title: args.title ? String(args.title) : undefined,
+      ...techOptions(args),
     };
     const song = createSong(params);
     const base = args.title ? slug(args.title) : `music-${styleId}-${seed}`;
@@ -214,7 +306,7 @@ async function callTool(name, args = {}) {
     if (format === 'wav' || format === 'both') {
       const audio = renderSong(song);
       const wavPath = path.join(outputDir, `${base}.wav`);
-      const wav = writeWav(wavPath, audio.L, audio.R, audio.sr);
+      const wav = writeWav(wavPath, audio.L, audio.R, audio.sr, !!audio.mono);
       files.push({ path: wavPath, format: 'wav', bytes: wav.bytes, samples: wav.samples, sr: wav.sr });
     }
     if (format === 'midi' || format === 'both') {
@@ -240,6 +332,7 @@ async function callTool(name, args = {}) {
       seed: args.seed,
       volume: args.volume,
       outputDir,
+      ...techOptions(args),
     });
     const text = [
       `🔊 SFX « ${kind} » créé : ${sfx.desc}`,
@@ -251,6 +344,34 @@ async function callTool(name, args = {}) {
     return {
       content: [{ type: 'text', text }],
       structuredContent: sfx,
+    };
+  }
+
+  if (name === 'create_ambience') {
+    const kind = String(args.kind || '').trim();
+    if (!AMBIENCE_KINDS[kind]) {
+      throw new Error(`Ambiance inconnue: "${kind}". Disponibles: ${AMBIENCE_IDS.join(', ')}.`);
+    }
+    const outputDir = args.output_dir ? path.resolve(String(args.output_dir)) : DEFAULT_OUTPUT_DIR;
+    const amb = createAmbience(kind, {
+      seed: args.seed,
+      durationSec: args.duration_seconds,
+      volume: args.volume,
+      outputDir,
+      ...techOptions(args),
+    });
+    const text = [
+      `🌫️ Ambiance « ${kind} » créée : ${amb.desc}`,
+      '',
+      `- Fichier : ${amb.path} (${fmtBytes(amb.bytes)})`,
+      `- Boucle : ${amb.durationSeconds} s, sans raccord audible (crossfade intégré)`,
+      `- Seed : ${amb.seed} — même seed = même ambiance.`,
+      '',
+      'Astuce : joue-la en fond en continu (loop) ; une ambiance plus longue a des événements moins répétitifs.',
+    ].join('\n');
+    return {
+      content: [{ type: 'text', text }],
+      structuredContent: amb,
     };
   }
 

@@ -40,6 +40,16 @@ const SFX_KINDS = {
   alarm: { desc: 'Alarme : klaxon deux tons répété' },
   sword: { desc: 'Épée : coup d\'air + choc métallique (shing)' },
   bubble: { desc: 'Bulles : trois blips d\'eau montants' },
+  magic: { desc: 'Magie : arpège scintillant montant + poussière de étoiles' },
+  teleport: { desc: 'Téléportation : aspiration grave puis flash aigu' },
+  bowShoot: { desc: 'Arc : corde qui claque + flèche qui siffle' },
+  gunShoot: { desc: 'Coup de feu : détonation sèche + boom grave + écho' },
+  thunder: { desc: 'Tonnerre : craquement initial + grondement long' },
+  questComplete: { desc: 'Quête accomplie : fanfare 4 notes + cloche brillante' },
+  menuOpen: { desc: 'Menu ouvert : deux notes douces montantes' },
+  chestOpen: { desc: 'Coffre : grincement de charnière + claquement + trésor' },
+  ghost: { desc: 'Fantôme : whoosh spectral + voix éthérée vacillante' },
+  forge: { desc: 'Forge : coup de marteau + résonance métallique + braises' },
 };
 
 /* --------------------------- primitives --------------------------- */
@@ -338,6 +348,136 @@ const PRESETS = {
       { type: 'tone', dur: 0.09, f0: 560 * d, f1: 1250 * d, wave: 'sine', vib: 1.5, gain: 0.26, release: 0.02, offset: 0.21 },
     ];
   },
+  magic(rng) {
+    const d = rng.f(0.97, 1.04);
+    // arpège pentatonique montant : [0, 4, 7, 12, 16, 19] demi-tons au-dessus de C5
+    const base = 523 * d;
+    const st = [0, 4, 7, 12, 16, 19];
+    const layers = [];
+    st.forEach((s, i) => {
+      const f = base * Math.pow(2, s / 12);
+      layers.push({ type: 'tone', dur: 0.16, f0: f, wave: 'tri', lpHz: 8000, gain: 0.34, decay: 0.09, offset: i * 0.055, pan: ((i % 3) - 1) * 0.35 });
+    });
+    // poussière d'étoiles : souffle très aigu qui scintille
+    layers.push({ type: 'noise', dur: 0.5, hp: 4000, lp: 11000, gain: 0.14, env: 'hump', offset: 0.08 });
+    // note finale tenue
+    const fTop = base * Math.pow(2, 19 / 12);
+    layers.push({ type: 'tone', dur: 0.55, f0: fTop, f1: fTop * 1.02, wave: 'sine', fmRatio: 3.01, fmIndex: 1.6, fmDecay: 0.35, gain: 0.26, decay: 0.3, offset: 0.36, release: 0.15 });
+    return layers;
+  },
+  teleport(rng) {
+    const d = rng.f(0.96, 1.05);
+    return [
+      // aspiration : souffle qui s'ouvre puis se referme
+      { type: 'noise', dur: 0.38, gain: 0.5, env: 'hump', lpEnv: { from: 400, peak: 6000, to: 300 } },
+      // tonalité qui plonge (le corps aspiré)
+      { type: 'tone', dur: 0.34, f0: 520 * d, f1: 110 * d, wave: 'sine', gain: 0.4, vib: 2, release: 0.05 },
+      { type: 'tone', dur: 0.34, f0: 523 * d, f1: 110 * d, wave: 'saw', lpHz: 1600, gain: 0.18, release: 0.05 },
+      // flash : sweep aigu montant
+      { type: 'tone', dur: 0.18, f0: 700, f1: 2600, wave: 'tri', lpHz: 9000, gain: 0.4, offset: 0.33, release: 0.03 },
+      // ping de réapparition
+      { type: 'noise', dur: 0.06, hp: 2500, gain: 0.3, offset: 0.4 },
+      { type: 'tone', dur: 0.2, f0: 1980, wave: 'sine', gain: 0.25, decay: 0.09, offset: 0.4 },
+    ];
+  },
+  bowShoot() {
+    return [
+      // corde tendue : frottement feutré
+      { type: 'noise', dur: 0.22, hp: 800, lp: 3400, gain: 0.2, env: 'hump' },
+      // claquement du départ
+      { type: 'noise', dur: 0.045, hp: 1400, gain: 0.75, env: 'exp', tau: 0.06 },
+      { type: 'tone', dur: 0.09, f0: 320, f1: 190, wave: 'sine', gain: 0.3, decay: 0.03 },
+      // flèche qui siffle (décalée à droite)
+      { type: 'noise', dur: 0.5, gain: 0.4, env: 'hump', lpEnv: { from: 2400, peak: 5400, to: 600 }, pan: 0.2, offset: 0.05 },
+      { type: 'tone', dur: 0.42, f0: 1900, f1: 1150, wave: 'sine', gain: 0.07, attack: 0.06, release: 0.12, pan: 0.2, offset: 0.08 },
+    ];
+  },
+  gunShoot() {
+    return [
+      // détonation : crack très court
+      { type: 'noise', dur: 0.05, hp: 2000, gain: 0.9, env: 'exp', tau: 0.02 },
+      // boom : bas du coup de feu
+      { type: 'noise', dur: 0.45, brown: true, lp: 900, gain: 0.75, tau: 0.12 },
+      { type: 'tone', dur: 0.32, f0: 90, f1: 40, wave: 'sine', gain: 0.6, decay: 0.08 },
+      // écho de réverbération
+      { type: 'noise', dur: 0.55, hp: 450, lp: 3200, gain: 0.28, env: 'hump', offset: 0.12 },
+      { type: 'noise', dur: 0.3, hp: 600, lp: 2200, gain: 0.12, env: 'hump', offset: 0.3 },
+    ];
+  },
+  thunder() {
+    return [
+      // craquement initial
+      { type: 'noise', dur: 0.12, hp: 1200, gain: 0.55, env: 'exp', tau: 0.04 },
+      // grondement long qui descend vers le grave
+      { type: 'noise', dur: 2.4, brown: true, gain: 0.8, env: 'hump', lpEnv: { from: 800, peak: 1400, to: 55 }, offset: 0.06 },
+      // sub : la masse d'air qui roule
+      { type: 'tone', dur: 2.0, f0: 60, f1: 38, wave: 'sine', gain: 0.5, decay: 0.8, offset: 0.12 },
+    ];
+  },
+  questComplete(rng) {
+    const d = rng.f(0.99, 1.01);
+    // fanfare : [0, 4, 7, 12] demi-tons au-dessus de C5
+    const base = 523 * d;
+    const steps = [0, 4, 7, 12];
+    const layers = [];
+    steps.forEach((s, i) => {
+      const f = base * Math.pow(2, s / 12);
+      const last = i === steps.length - 1;
+      layers.push({ type: 'tone', dur: last ? 0.9 : 0.26, f0: f, wave: 'tri', lpHz: 7500, gain: 0.4, decay: last ? 0.4 : 0.1, offset: i * 0.16, release: 0.08 });
+      layers.push({ type: 'tone', dur: last ? 0.9 : 0.26, f0: f * 2, wave: 'sine', gain: 0.12, decay: last ? 0.35 : 0.08, offset: i * 0.16, release: 0.08 });
+    });
+    // cloche brillante de conclusion (2 octaves au-dessus)
+    layers.push({ type: 'tone', dur: 1.1, f0: base * 4, wave: 'sine', fmRatio: 3.5, fmIndex: 1.8, fmDecay: 0.25, gain: 0.28, decay: 0.5, offset: 0.72, release: 0.2 });
+    return layers;
+  },
+  menuOpen() {
+    return [
+      { type: 'tone', dur: 0.09, f0: 620, wave: 'sine', attack: 0.008, gain: 0.35, release: 0.02 },
+      { type: 'tone', dur: 0.14, f0: 930, wave: 'sine', attack: 0.008, gain: 0.4, offset: 0.075, release: 0.05 },
+      { type: 'tone', dur: 0.14, f0: 1860, wave: 'sine', gain: 0.12, offset: 0.075, release: 0.05 },
+      // shwoosh d'interface
+      { type: 'noise', dur: 0.18, hp: 2000, lp: 8000, gain: 0.1, env: 'hump', offset: 0.02 },
+    ];
+  },
+  chestOpen() {
+    return [
+      // grincement de charnière (saw battant)
+      { type: 'tone', dur: 0.45, f0: 180, f1: 150, wave: 'saw', lpHz: 900, vib: 0.8, vibHz: 11, attack: 0.04, gain: 0.25, release: 0.06 },
+      { type: 'noise', dur: 0.4, hp: 600, lp: 2400, gain: 0.12, env: 'hump', lpEnv: { from: 900, peak: 2100, to: 800 } },
+      // claquement du couvercle
+      { type: 'tone', dur: 0.25, f0: 110, f1: 45, wave: 'sine', gain: 0.7, decay: 0.06, offset: 0.46 },
+      { type: 'noise', dur: 0.08, hp: 1000, gain: 0.3, offset: 0.46 },
+      // trésor : tintements
+      { type: 'tone', dur: 0.3, f0: 1568, wave: 'sine', gain: 0.3, decay: 0.16, offset: 0.56 },
+      { type: 'tone', dur: 0.35, f0: 2093, wave: 'sine', gain: 0.24, decay: 0.2, offset: 0.64 },
+      { type: 'noise', dur: 0.03, hp: 3200, gain: 0.12, offset: 0.58 },
+    ];
+  },
+  ghost() {
+    return [
+      // whoosh spectral
+      { type: 'noise', dur: 0.9, hp: 300, lp: 1800, gain: 0.4, env: 'hump' },
+      // voix éthérée : tons descendants très vibrato
+      { type: 'tone', dur: 0.8, f0: 660, f1: 430, wave: 'sine', vib: 1.2, vibHz: 5.5, attack: 0.16, gain: 0.3, release: 0.2, offset: 0.12 },
+      { type: 'tone', dur: 0.8, f0: 990, f1: 645, wave: 'sine', vib: 1.4, vibHz: 4.6, attack: 0.2, gain: 0.2, release: 0.2, offset: 0.24, pan: -0.25 },
+      { type: 'tone', dur: 0.7, f0: 1320, f1: 860, wave: 'sine', vib: 1.3, vibHz: 6, attack: 0.22, gain: 0.09, release: 0.2, offset: 0.3, pan: 0.25 },
+    ];
+  },
+  forge() {
+    return [
+      // clac du marteau sur l'enclume
+      { type: 'noise', dur: 0.03, hp: 2400, gain: 0.6, env: 'exp', tau: 0.015 },
+      // clang métallique (FM inharmonique)
+      { type: 'tone', dur: 0.5, f0: 2200, wave: 'sine', fmRatio: 6.7, fmIndex: 2.6, fmDecay: 0.09, gain: 0.32, decay: 0.14, offset: 0.01 },
+      // résonance partielle (×1.52)
+      { type: 'tone', dur: 0.65, f0: 2200 * 1.52, wave: 'sine', gain: 0.18, decay: 0.3, offset: 0.01 },
+      { type: 'tone', dur: 0.55, f0: 2200 * 2.02, wave: 'sine', gain: 0.1, decay: 0.25, offset: 0.02 },
+      // braises qui s'échappent
+      { type: 'noise', dur: 0.02, hp: 2800, gain: 0.16, offset: 0.22 },
+      { type: 'noise', dur: 0.018, hp: 3400, gain: 0.12, offset: 0.31 },
+      { type: 'noise', dur: 0.015, hp: 3000, gain: 0.09, offset: 0.52 },
+    ];
+  },
 };
 
 const SFX_IDS = Object.keys(SFX_KINDS);
@@ -350,7 +490,7 @@ function createSfx(kind, opts = {}) {
   if (!preset) throw new Error(`SFX inconnu: ${kind}. Disponibles: ${SFX_IDS.join(', ')}`);
   const seed = (opts.seed >>> 0) || randomSeed();
   const rng = makeRng(seed);
-  const sr = 44100;
+  const sr = opts.sr || 44100;
   const vol = clamp(opts.volume ?? 1, 0.05, 1);
 
   const layers = preset(rng);
@@ -373,9 +513,17 @@ function createSfx(kind, opts = {}) {
     for (let i = 0; i < mix.n; i++) { mix.L[i] *= g; mix.R[i] *= g; }
   }
 
+  if (opts.mono) {
+    for (let i = 0; i < mix.n; i++) {
+      const m = (mix.L[i] + mix.R[i]) / 2;
+      mix.L[i] = m;
+      mix.R[i] = m;
+    }
+  }
+
   const outDir = opts.outputDir || path.join(__dirname, '..', 'output');
   const file = path.join(outDir, `sfx-${kind}-${seed}.wav`);
-  const res = writeWav(file, mix.L, mix.R, sr);
+  const res = writeWav(file, mix.L, mix.R, sr, !!opts.mono);
   return {
     path: file,
     kind,
@@ -386,4 +534,4 @@ function createSfx(kind, opts = {}) {
   };
 }
 
-module.exports = { createSfx, SFX_IDS, SFX_KINDS };
+module.exports = { createSfx, SFX_IDS, SFX_KINDS, Mixer, renderTone, renderNoise };

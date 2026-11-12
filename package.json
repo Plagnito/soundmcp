@@ -1,7 +1,7 @@
 {
   "name": "@plagnito/soundmcp",
-  "version": "1.1.0",
-  "description": "Serveur MCP de composition musicale pour IA : musiques de jeu (ambiant, lo-fi, chiptune, épique…) + effets sonores, rendus en WAV/MIDI, zéro dépendance.",
+  "version": "1.2.0",
+  "description": "Serveur MCP de composition musicale pour IA : musiques de jeu (ambiant, lo-fi, chiptune, épique…), effets sonores et ambiances en boucle parfaite, rendus en WAV/MIDI, zéro dépendance.",
   "main": "src/index.js",
   "author": "Plagnito",
   "repository": {

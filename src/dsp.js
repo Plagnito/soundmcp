@@ -587,7 +587,7 @@ function renderEventsInto(evs, L, R, sr, spb) {
  * retourne { L, R, sr, samples }
  */
 function renderSong(song) {
-  const sr = SR;
+  const sr = song.sr || SR;
   const spb = 60 / song.bpm;
   const musicSamples = Math.round(song.totalBeats * spb * sr);
   const loop = !!song.loop;
@@ -637,9 +637,24 @@ function renderSong(song) {
       masterL[i] += masterL[loopSamples + i];
       masterR[i] += masterR[loopSamples + i];
     }
-    return masterOutput(masterL, masterR, loopSamples, sr, song.endFade || 0);
+    const out = masterOutput(masterL, masterR, loopSamples, sr, song.endFade || 0);
+    out.mono = !!song.mono;
+    return song.mono ? toMono(out) : out;
   }
-  return masterOutput(masterL, masterR, musicSamples + tailSamples, sr, song.endFade || 0);
+  const out = masterOutput(masterL, masterR, musicSamples + tailSamples, sr, song.endFade || 0);
+  out.mono = !!song.mono;
+  return song.mono ? toMono(out) : out;
+}
+
+/** Convertit un rendu stéréo { L, R } en mono (moyenne des canaux, in-place). */
+function toMono(out) {
+  const n = out.L.length;
+  for (let i = 0; i < n; i++) {
+    const m = (out.L[i] + out.R[i]) / 2;
+    out.L[i] = m;
+    out.R[i] = m;
+  }
+  return out;
 }
 
 /** passe-bas HP global + écrêtage doux + normalisation, éventuel fondu de fin. */
@@ -676,10 +691,11 @@ function masterOutput(L, R, n, sr, endFadeSec) {
 
 /* ---------------------------------- WAV ---------------------------------- */
 
-/** Écrit un WAV PCM 16 bits stéréo. */
-function writeWav(filePath, L, R, sr = SR) {
-  const n = Math.min(L.length, R.length);
-  const dataSize = n * 2 * 2;
+/** Écrit un WAV PCM 16 bits (stéréo, ou mono si `mono` : 1 canal, taille moitié). */
+function writeWav(filePath, L, R, sr = SR, mono = false) {
+  const n = mono ? L.length : Math.min(L.length, R.length);
+  const blockAlign = mono ? 2 : 4;
+  const dataSize = n * blockAlign;
   const buf = Buffer.alloc(44 + dataSize);
   buf.write('RIFF', 0, 'ascii');
   buf.writeUInt32LE(36 + dataSize, 4);
@@ -687,18 +703,20 @@ function writeWav(filePath, L, R, sr = SR) {
   buf.write('fmt ', 12, 'ascii');
   buf.writeUInt32LE(16, 16);
   buf.writeUInt16LE(1, 20);        // PCM
-  buf.writeUInt16LE(2, 22);        // stéréo
+  buf.writeUInt16LE(mono ? 1 : 2, 22); // canaux
   buf.writeUInt32LE(sr, 24);
-  buf.writeUInt32LE(sr * 4, 28);   // byte rate
-  buf.writeUInt16LE(4, 32);        // block align
+  buf.writeUInt32LE(sr * blockAlign, 28); // byte rate
+  buf.writeUInt16LE(blockAlign, 32);      // block align
   buf.writeUInt16LE(16, 34);       // bits
   buf.write('data', 36, 'ascii');
   buf.writeUInt32LE(dataSize, 40);
   for (let i = 0; i < n; i++) {
     const l = Math.max(-1, Math.min(1, L[i]));
-    const r = Math.max(-1, Math.min(1, R[i]));
-    buf.writeInt16LE(Math.round(l * 32767), 44 + i * 4);
-    buf.writeInt16LE(Math.round(r * 32767), 46 + i * 4);
+    buf.writeInt16LE(Math.round(l * 32767), 44 + i * blockAlign);
+    if (!mono) {
+      const r = Math.max(-1, Math.min(1, R[i]));
+      buf.writeInt16LE(Math.round(r * 32767), 46 + i * blockAlign);
+    }
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, buf);
@@ -729,6 +747,9 @@ module.exports = {
   renderEventsInto,
   Reverb,
   applyPingPong,
+  masterOutput,
+  toMono,
+  lpCoef,
   writeWav,
   readWavInfo,
   midiToFreq,

@@ -38,6 +38,8 @@ function createSong(params) {
   const bpm = clamp(Math.round(params.tempo ?? style.defaults.tempo), 40, 220);
   const durSec = clamp(params.duration_seconds ?? style.defaults.duration, 5, 600);
   const loop = params.loop !== undefined ? !!params.loop : !!style.defaults.loop;
+  const sr = [22050, 44100, 48000].includes(params.sr) ? params.sr : 44100;
+  const mono = !!params.mono;
 
   // tonalité
   let key = parseKey(params.key);
@@ -209,6 +211,8 @@ function createSong(params) {
     bars,
     totalBeats,
     loop,
+    sr,
+    mono,
     fx,
     meta,
     endFade: !loop ? 1.8 : 0,
