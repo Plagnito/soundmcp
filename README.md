@@ -16,7 +16,7 @@ Points clés :
 - **Déterministe** : même `seed` + mêmes paramètres = exactement le même son. Idéal pour itérer (« essaie le seed 42 ») et reproduire un rendu validé.
 - **Boucles sans raccord** : avec `loop: true`, la queue de réverbération/délai est repliée au début du morceau — le raccord est inaudible, parfait en fond de jeu continu.
 - **Zéro dépendance** : `npm install` inutile. Un seul fichier de serveur, `node src/index.js`.
-- **10 styles musicaux** et **16 effets sonores** prêts à l'emploi.
+- **14 styles musicaux** et **22 effets sonores** prêts à l'emploi.
 
 ## Installation
 
@@ -75,7 +75,7 @@ Liste les styles musicaux et les effets sonores avec leurs usages et tempos. **�
 
 | Paramètre | Type | Défaut | Description |
 |---|---|---|---|
-| `style` *(requis)* | string | — | Un des 10 styles (voir ci-dessous) |
+| `style` *(requis)* | string | — | Un des 14 styles (voir ci-dessous) |
 | `duration_seconds` | nombre (5–600) | selon style | Durée cible, arrondie à des mesures entières |
 | `tempo` | nombre (40–220) | selon style | BPM ; laisser le style choisir sinon |
 | `key` | string | selon style | Tonalité EN ou FR : `"A minor"`, `"la mineur"`, `"F# dorien"`, `"C majeur"`… |
@@ -91,12 +91,12 @@ Retour : résumé musical complet (tonalité, tempo, progression, structure, see
 
 | Paramètre | Type | Défaut | Description |
 |---|---|---|---|
-| `kind` *(requis)* | string | — | Un des 16 effets (voir ci-dessous) |
+| `kind` *(requis)* | string | — | Un des 22 effets (voir ci-dessous) |
 | `seed` | entier ≥ 0 | aléatoire | Graine déterministe |
 | `volume` | nombre (0.05–1) | `1` | Volume relatif |
 | `output_dir` | string | `<projet>/output` | Dossier de sortie |
 
-## Les 10 styles
+## Les 14 styles
 
 | Style | Ambiance | Idéal pour |
 |---|---|---|
@@ -110,10 +110,14 @@ Retour : résumé musical complet (tonalité, tempo, progression, structure, see
 | `sad` | Mélancolique, piano/intimos | Scènes d'émotion, pertes, fins tristes |
 | `dungeon` | Sombre, réverbérant, drone | Donjons, caves, zones hostiles |
 | `menu` | Thème de titre accrocheur | Écran titre, menus, hall principal |
+| `suspense` | Pulse obsédant, ostinato nerveux | Poursuites, infiltration, compte à rebours |
+| `victory` | Fanfare lumineuse, percussions triomphantes | Boss vaincu, podium, ending |
+| `village` | Bourg chaleureux, flûte et luth | Marchés, tavernes, zones sûres |
+| `combat` | Bataille nerveuse, riffs carrés | Boss rapides, arènes, duels |
 
-## Les 16 effets sonores
+## Les 22 effets sonores
 
-`jump`, `coin`, `pickup`, `hit`, `damage`, `explosion`, `whoosh`, `laser`, `powerup`, `levelup`, `heal`, `click`, `hover`, `error`, `success`, `footstep`
+`jump`, `coin`, `pickup`, `hit`, `damage`, `explosion`, `whoosh`, `laser`, `powerup`, `levelup`, `heal`, `click`, `hover`, `error`, `success`, `footstep`, `door`, `splash`, `heartbeat`, `alarm`, `sword`, `bubble`
 
 ## Utilisation en ligne de commande
 
@@ -142,7 +146,7 @@ Options : `--dur`, `--bpm`, `--key`, `--seed`, `--midi`, `--both`, `--loop/--no-
 ## Tests
 
 ```bash
-npm test   # 67 vérifications : en-têtes WAV, bouclage exact, déterminisme, RMS, MIDI, SFX…
+npm test   # 139 vérifications : en-têtes WAV, bouclage exact, déterminisme, RMS, MIDI, SFX, styles…
 ```
 
 ## Architecture
@@ -154,13 +158,13 @@ src/
 ├── cli.js        Interface ligne de commande
 ├── composer.js   Composition : structure, accords, motifs, bus
 ├── theory.js     Gammes, accords, degrés, parsing tonalité EN/FR
-├── styles.js     Les 10 styles (tempo, pools de tonalités, effets)
+├── styles.js     Les 14 styles (tempo, pools de tonalités, effets)
 ├── dsp.js        Synthèse des instruments, réverbération, délai, master, WAV
 ├── midi.js       Export MIDI GM (5 pistes, PPQ 480)
-├── sfx.js        Les 16 effets sonores
+├── sfx.js        Les 22 effets sonores
 └── rng.js        PRNG mulberry32 + hachage déterministe
 
-scripts/smoke.js  Suite de tests (67 vérifications)
+scripts/smoke.js  Suite de tests (139 vérifications)
 output/           Fichiers générés
 ```
 

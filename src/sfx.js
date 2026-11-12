@@ -34,6 +34,12 @@ const SFX_KINDS = {
   error: { desc: 'Erreur : deux buzz descendants dissonants' },
   success: { desc: 'Succès : deux notes triomphantes' },
   footstep: { desc: 'Pas : thump feutré (varié par seed)' },
+  door: { desc: 'Porte : couinement lent + claquement sourd' },
+  splash: { desc: 'Éclaboussure : gerbe d\'eau + gouttes descendantes' },
+  heartbeat: { desc: 'Battement de cœur : double pouls grave (lub-dub)' },
+  alarm: { desc: 'Alarme : klaxon deux tons répété' },
+  sword: { desc: 'Épée : coup d\'air + choc métallique (shing)' },
+  bubble: { desc: 'Bulles : trois blips d\'eau montants' },
 };
 
 /* --------------------------- primitives --------------------------- */
@@ -266,6 +272,70 @@ const PRESETS = {
     return [
       { type: 'noise', dur: 0.1, hp: 60, lp: 550, gain: 0.45, tau: 0.03 },
       { type: 'tone', dur: 0.07, f0: f, f1: f * 0.7, wave: 'sine', gain: 0.4, decay: 0.03 },
+    ];
+  },
+  door(rng) {
+    const up = rng.chance(0.5);
+    const c0 = up ? 160 : 230, c1 = up ? 240 : 170;
+    return [
+      // couinement (charnière) : oscillateur battant + bruit filtré balayé
+      { type: 'tone', dur: 0.4, f0: c0, f1: c1, wave: 'saw', lpHz: 1400, vib: 7, vibHz: 7.5, attack: 0.09, gain: 0.22, release: 0.1 },
+      { type: 'noise', dur: 0.4, hp: 500, lp: 2200, env: 'hump', gain: 0.16, lpEnv: { from: 1100, peak: 2600, to: 800 } },
+      // claquement
+      { type: 'tone', dur: 0.28, f0: 115, f1: 48, wave: 'sine', gain: 0.75, decay: 0.07, offset: 0.42 },
+      { type: 'noise', dur: 0.2, brown: true, hp: 40, gain: 0.45, tau: 0.05, offset: 0.42 },
+      { type: 'noise', dur: 0.06, hp: 1400, gain: 0.3, offset: 0.42 },
+    ];
+  },
+  splash() {
+    return [
+      { type: 'noise', dur: 0.55, hp: 700, gain: 0.65, env: 'hump', lpEnv: { from: 6500, peak: 7500, to: 700 } },
+      { type: 'noise', dur: 0.8, brown: true, hp: 100, lp: 750, gain: 0.35, tau: 0.28 },
+      { type: 'noise', dur: 0.04, hp: 3500, gain: 0.22, offset: 0.2 },
+      { type: 'noise', dur: 0.035, hp: 3000, gain: 0.18, offset: 0.32 },
+      { type: 'noise', dur: 0.03, hp: 2600, gain: 0.14, offset: 0.43 },
+    ];
+  },
+  heartbeat() {
+    return [
+      { type: 'tone', dur: 0.16, f0: 66, f1: 40, wave: 'sine', gain: 0.85, decay: 0.055 },
+      { type: 'noise', dur: 0.1, brown: true, hp: 30, lp: 220, gain: 0.3, tau: 0.04 },
+      { type: 'tone', dur: 0.14, f0: 58, f1: 38, wave: 'sine', gain: 0.6, decay: 0.05, offset: 0.26 },
+      { type: 'noise', dur: 0.08, brown: true, hp: 30, lp: 200, gain: 0.22, tau: 0.035, offset: 0.26 },
+    ];
+  },
+  alarm() {
+    const a = 640, b = 475;
+    const layers = [];
+    for (let i = 0; i < 2; i++) {
+      const t = i * 0.62;
+      layers.push({ type: 'tone', dur: 0.3, f0: a, wave: 'square', lpHz: 3000, gain: 0.3, attack: 0.012, release: 0.04, offset: t });
+      layers.push({ type: 'tone', dur: 0.3, f0: a / 2, wave: 'sine', gain: 0.22, attack: 0.012, release: 0.04, offset: t });
+      layers.push({ type: 'tone', dur: 0.3, f0: b, wave: 'square', lpHz: 3000, gain: 0.3, attack: 0.012, release: 0.04, offset: t + 0.31 });
+      layers.push({ type: 'tone', dur: 0.3, f0: b / 2, wave: 'sine', gain: 0.22, attack: 0.012, release: 0.04, offset: t + 0.31 });
+    }
+    return layers;
+  },
+  sword() {
+    const clang = 2600 * 1.12;
+    return [
+      // coup d'air
+      { type: 'noise', dur: 0.2, hp: 400, gain: 0.5, env: 'hump', lpEnv: { from: 2400, peak: 6800, to: 900 } },
+      // choc métallique (FM inharmonique)
+      { type: 'tone', dur: 0.5, f0: clang, f1: clang * 0.7, wave: 'sine', fmRatio: 7.3, fmIndex: 3.2, fmDecay: 0.09, gain: 0.32, decay: 0.16, offset: 0.2 },
+      { type: 'tone', dur: 0.5, f0: clang * 1.51, wave: 'sine', gain: 0.14, decay: 0.22, offset: 0.2 },
+      { type: 'noise', dur: 0.1, hp: 2600, gain: 0.45, offset: 0.2 },
+      // résonance
+      { type: 'tone', dur: 0.7, f0: clang * 2.02, wave: 'sine', gain: 0.12, decay: 0.3, offset: 0.22 },
+    ];
+  },
+  bubble(rng) {
+    const d = rng.f(0.95, 1.08);
+    return [
+      { type: 'tone', dur: 0.11, f0: 310 * d, f1: 720 * d, wave: 'sine', vib: 1.5, gain: 0.4, release: 0.02 },
+      { type: 'noise', dur: 0.025, hp: 2200, gain: 0.14, offset: 0.02 },
+      { type: 'tone', dur: 0.1, f0: 430 * d, f1: 980 * d, wave: 'sine', vib: 1.5, gain: 0.32, release: 0.02, offset: 0.11 },
+      { type: 'tone', dur: 0.09, f0: 560 * d, f1: 1250 * d, wave: 'sine', vib: 1.5, gain: 0.26, release: 0.02, offset: 0.21 },
     ];
   },
 };

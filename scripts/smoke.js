@@ -136,8 +136,24 @@ const wavB = path.join(TMP, 'upbeat-b.wav');
 }
 audioStats(decodeWav(wavA), 'upbeat');
 
-console.log('— SFX (jump, coin, explosion) —');
-for (const kind of ['jump', 'coin', 'explosion']) {
+console.log('— Rendus des 4 nouveaux styles (suspense, victory, village, combat) —');
+const newStyles = [
+  { style: 'suspense', dur: 10, seed: 11 },
+  { style: 'victory', dur: 10, seed: 12 },
+  { style: 'village', dur: 10, seed: 13 },
+  { style: 'combat', dur: 10, seed: 14 },
+];
+for (const { style, dur, seed } of newStyles) {
+  const song = createSong({ style, duration_seconds: dur, seed });
+  const audio = renderSong(song);
+  const wav = path.join(TMP, `${style}.wav`);
+  writeWav(wav, audio.L, audio.R, audio.sr);
+  checkWavHeader(wav, style, audio.samples);
+  audioStats(decodeWav(wav), style);
+}
+
+console.log('— SFX (16 existants + 6 nouveaux) —');
+for (const kind of ['jump', 'coin', 'explosion', 'door', 'splash', 'heartbeat', 'alarm', 'sword', 'bubble']) {
   const sfx = createSfx(kind, { seed: 5, outputDir: TMP });
   const info = checkWavHeader(sfx.path, `sfx ${kind}`);
   check(sfx.bytes > 800 && sfx.bytes === info.bytes, `sfx ${kind} : ${info.bytes} octets`);

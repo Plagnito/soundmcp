@@ -33,12 +33,12 @@ const TIP_LOOP = 'Pour une boucle de jeu, utilise loop: true — la queue de ré
 const TOOLS = [
   {
     name: 'list_styles',
-    description: 'Liste les styles musicaux disponibles (ambiant, lo-fi, chiptune, épique…) et les effets sonores (SFX), avec leurs usages et tempos par défaut. À consulter avant de créer une musique.',
+    description: 'Liste les styles musicaux disponibles (ambiant, lo-fi, chiptune, épique, combat, victoire…) et les effets sonores (SFX), avec leurs usages et tempos par défaut. À consulter avant de créer une musique.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'create_music',
-    description: 'Compose et rend une piste musicale de jeu (WAV stéréo 44.1 kHz 16 bits, MIDI GM, ou les deux). 10 styles : ambient, lofi, chiptune, epic, mystery, fantasy, upbeat, sad, dungeon, menu. Déterministe : même seed = même musique. loop: true produit une boucle sans raccord audible, parfaite en fond de jeu.',
+    description: 'Compose et rend une piste musicale de jeu (WAV stéréo 44.1 kHz 16 bits, MIDI GM, ou les deux). 14 styles : ambient, lofi, chiptune, epic, mystery, fantasy, upbeat, sad, dungeon, menu, suspense, victory, village, combat. Déterministe : même seed = même musique. loop: true produit une boucle sans raccord audible, parfaite en fond de jeu.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -92,7 +92,7 @@ const TOOLS = [
   },
   {
     name: 'create_sfx',
-    description: 'Crée un effet sonore de jeu prêt à l\'emploi (WAV) : jump, coin, pickup, hit, damage, explosion, whoosh, laser, powerup, levelup, heal, click, hover, error, success, footstep. Déterministe via seed.',
+    description: 'Crée un effet sonore de jeu prêt à l\'emploi (WAV) : jump, coin, pickup, hit, damage, explosion, whoosh, laser, powerup, levelup, heal, click, hover, error, success, footstep, door, splash, heartbeat, alarm, sword, bubble. Déterministe via seed.',
     inputSchema: {
       type: 'object',
       properties: {
