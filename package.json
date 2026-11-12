@@ -3,6 +3,36 @@
   "version": "1.1.0",
   "description": "Serveur MCP de composition musicale pour IA : musiques de jeu (ambiant, lo-fi, chiptune, épique…) + effets sonores, rendus en WAV/MIDI, zéro dépendance.",
   "main": "src/index.js",
+  "author": "Plagnito",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Plagnito/soundmcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Plagnito/soundmcp/issues"
+  },
+  "homepage": "https://github.com/Plagnito/soundmcp#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "music",
+    "sfx",
+    "sound-effects",
+    "game-audio",
+    "wav",
+    "midi",
+    "procedural-audio",
+    "ai",
+    "zero-dependency",
+    "chiptune",
+    "lofi"
+  ],
+  "files": [
+    "src",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node src/index.js",
     "test": "node scripts/smoke.js",
