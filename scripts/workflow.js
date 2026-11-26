@@ -72,8 +72,9 @@ async function main() {
     arrangement: { sections: [{ name: 'Approche', bars: 2, meter: [6, 8], tempo: 94 },
       { name: 'Montée', bars: 2, tempo: 116 }, { name: 'Arrivée', bars: 2, tempo: 127 }] } });
   const buildProject = writeProject(path.join(dir, 'arrivee.soundmcp.json'), baseBuild, 24).path;
-  const buildComparison = (await callTool('compare_builds', { project_path: buildProject, section: 'Arrivée', before_bars: 3,
+  const buildComparison = (await callTool('compare_music_choices', { project_path: buildProject, criterion: 'build', section: 'Arrivée', before_bars: 3,
     after_bars: 2, seed: 2, output_dir: dir })).structuredContent;
+  assert.equal(buildComparison.criterion, 'build');
   assert.equal(buildComparison.region.arrivalBar, 5);
   assert.equal(buildComparison.levelMatching, 'arrival');
   assert(Math.abs(buildComparison.files[0].arrivalLufs - buildComparison.files[1].arrivalLufs) <= .04);

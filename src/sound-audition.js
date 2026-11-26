@@ -6,6 +6,19 @@ const { renderSong } = require('./dsp');
 const { hash32 } = require('./rng');
 const { noteNumber, validExpression } = require('./score-notes');
 const { midiToFreq } = require('./theory');
+const { SOUNDS, STUDIO_INSTRUMENTS } = require('./texture-voices');
+
+const BASE_STUDIO_SOUNDS = {
+  piano: ['Piano à queue', 'Piano Steinway B, prises à plusieurs nuances.', 'mel', 60],
+  upright: ['Contrebasse', 'Contrebasse pizzicato, attaque ronde et grave.', 'bass', 36],
+  strings: ['Ensemble de violons', 'Cordes à l’archet ou en pizzicato.', 'pad', 60],
+  flute: ['Flûte', 'Attaque soufflée, tenue et staccato.', 'mel', 74],
+  clarinet: ['Clarinette', 'Bois au registre grave rond, avec liaisons en palette Studio.', 'mel', 60],
+  brass: ['Cor', 'Cuivre rond, du jeu tenu aux accents détachés.', 'mel', 58],
+  'acoustic-guitar': ['Guitare acoustique', 'Prises de guitare archtop au microphone.', 'arp', 55],
+};
+const AUDITION_SOUNDS = { ...SOUNDS, ...BASE_STUDIO_SOUNDS };
+const RECORDED_SOUNDS = new Set([...STUDIO_INSTRUMENTS, ...Object.keys(BASE_STUDIO_SOUNDS)]);
 
 const DIRECTIONS = ['brighter', 'darker', 'shorter', 'longer'];
 const DEFAULT_PHRASE = [
@@ -21,6 +34,15 @@ function loadPatch(source) {
     throw new Error('Indique un patch ou un patch_path par son.');
   }
   return source.patch_path === undefined ? createPatch(source.title ?? 'Son personnel', source.patch) : readPatch(source.patch_path);
+}
+
+function loadSound(source) {
+  const id = source?.instrument;
+  if (id === undefined) return loadPatch(source);
+  if (source.patch !== undefined || source.patch_path !== undefined) throw new Error('Indique un seul de instrument, patch ou patch_path.');
+  if (typeof id !== 'string' || !Object.hasOwn(AUDITION_SOUNDS, id)) throw new Error('Instrument inconnu. Consulte list_sounds.');
+  const [label, , part] = AUDITION_SOUNDS[id];
+  return { id, label: source.title ?? label, part };
 }
 
 function readPhrase(args, seed) {
@@ -46,9 +68,10 @@ function readPhrase(args, seed) {
 function playPhrase(sound, { sr, mono }, phrase) {
   const { events, last, tail } = phrase;
   const gestural = supportsGesture(sound.patch);
-  const prepared = events.map((event) => ({ ...event, inst: sound.id, gesture: gestural ? event.gesture : undefined }));
+  const prepared = events.map((event) => ({ ...event, inst: sound.id, bus: sound.part ?? event.bus, gesture: gestural ? event.gesture : undefined }));
   return renderSong({ sr, mono, bpm: 60, totalBeats: last, bars: 1, events: prepared, loop: false,
-    targetSeconds: last + tail, endFade: Math.min(0.12, tail * 0.52), patches: { [sound.id]: sound.patch } });
+    targetSeconds: last + tail, endFade: Math.min(0.12, tail * 0.52),
+    ...(sound.patch ? { patches: { [sound.id]: sound.patch } } : { palette: 'studio', bankVersion: 3 }) });
 }
 
 const SUFFIX = { brighter: 'plus brillant', darker: 'plus sombre', shorter: 'plus bref', longer: 'plus long' };
@@ -85,4 +108,4 @@ function variantSound(sound, direction, amount) {
   return createPatch(`${sound.label.slice(0, 62)} · ${SUFFIX[direction]}`, patch);
 }
 
-module.exports = { DIRECTIONS, loadPatch, readPhrase, playPhrase, variantSound };
+module.exports = { AUDITION_SOUNDS, RECORDED_SOUNDS, DIRECTIONS, loadPatch, loadSound, readPhrase, playPhrase, variantSound };

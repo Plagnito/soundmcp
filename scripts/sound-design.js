@@ -10,7 +10,7 @@ const { renderSong, readWavInfo } = require('../src/dsp');
 const { renderSamples, loadBank } = require('../src/sample-bank');
 const { renderMidiBuffer } = require('../src/midi');
 const { SOUNDS, ELECTRIC } = require('../src/texture-voices');
-const { callTool } = require('../src/tools');
+const { TOOLS, callTool } = require('../src/tools');
 const { readProject } = require('../src/music-project');
 const { interpretBrief } = require('../src/arranger');
 
@@ -71,12 +71,36 @@ async function main() {
   assert.deepEqual(repaired.events.filter((e) => e.beat >= cutoff(repaired)), original.events.filter((e) => e.beat >= cutoff(original)));
 
   const { structuredContent: catalog } = await callTool('list_sounds');
-  assert.deepEqual(catalog.sounds.map(({ id }) => id), Object.keys(SOUNDS));
-  const sounds = Object.keys(SOUNDS).slice(0, 12);
-  const { structuredContent: audition } = await callTool('preview_sounds', { sounds, seed: 48, output_dir: dir });
-  assert.equal(audition.markers.length, 12);
+  const added = ['piano', 'upright', 'strings', 'flute', 'clarinet', 'brass', 'acoustic-guitar'];
+  const catalogIds = catalog.sounds.map(({ id }) => id);
+  assert.deepEqual(catalogIds, [...Object.keys(SOUNDS), ...added]);
+  assert(catalog.sounds.filter(({ id }) => added.includes(id)).every(({ source }) => source === 'prise instrumentale'));
+  const schema = (name) => TOOLS.find((tool) => tool.name === name).inputSchema;
+  assert.equal(TOOLS.length, 19);
+  assert(!TOOLS.some(({ name }) => name === 'preview_sounds' || name === 'compare_builds'));
+  assert.deepEqual(schema('play_sound').properties.sounds.items.anyOf[0].enum, catalogIds);
+  assert.deepEqual(schema('play_sound').properties.instrument.enum, catalogIds);
+  assert.deepEqual(schema('compare_sounds').properties.sounds.items.properties.instrument.enum, catalogIds);
+
+  const sounds = [...Object.keys(SOUNDS).slice(0, 5), ...added];
+  const { structuredContent: audition } = await callTool('play_sound', { sounds, seed: 48, output_dir: dir });
+  assert.deepEqual(audition.markers.map(({ sound }) => sound), sounds);
   assert(audition.markers.every((m) => Number.isFinite(m.integratedLufs)));
   assert(Math.abs(readWavInfo(audition.path).duration - 37.5) < 0.001);
+
+  const notes = [{ at: 0.08, pitch: 'B3', duration: 0.49 }, { at: 0.55, pitch: 'D4', duration: 0.45, articulation: 'legato' }];
+  const phrase = { notes, seed: 19, output_dir: dir, sampling_rate: 22050, mono: true };
+  await assert.rejects(callTool('play_sound', { sounds: ['clarinet'], ...phrase }), /phrase personnalisée/);
+  const { structuredContent: clarinet } = await callTool('play_sound', { instrument: 'clarinet', ...phrase });
+  assert.equal(clarinet.sound, 'clarinet');
+  assert.equal(readWavInfo(clarinet.path).channels, 1);
+  assert(Number.isFinite(clarinet.audio.integratedLufs));
+  await assert.rejects(callTool('play_sound', { instrument: 'clarinet', patch_path: 'patch.json', ...phrase }), /un seul/);
+  const { structuredContent: comparison } = await callTool('compare_sounds', {
+    sounds: [{ instrument: 'clarinet' }, { instrument: 'flute' }], ...phrase, blind: true,
+  });
+  assert.deepEqual(new Set(JSON.parse(fs.readFileSync(comparison.reveal_path, 'utf8')).map(({ id }) => id)), new Set(['clarinet', 'flute']));
+  assert(Math.abs(comparison.files[0].integratedLufs - comparison.files[1].integratedLufs) < 0.1);
   console.log('Design sonore : catalogue, vrais signaux de guitare, contrastes de section, stem de textures et nuancier vérifiés.');
 }
 
