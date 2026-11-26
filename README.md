@@ -100,6 +100,25 @@ Un brief suffit pour démarrer.
 
 L’interprétation locale repose sur des intentions et des termes reconnus. Pour une contrainte stricte, passez `duration_seconds`, `tempo`, `meter`, `style`, `key`, `energy`, `instruments` ou `without` explicitement. La composition instrumentale est imposée par le moteur. Une boucle longue peut être arrondie à une mesure complète.
 
+#### Composer une collection
+
+Passez trois à six `briefs` à `draft_music` pour obtenir un morceau par brief. Donnez à chaque morceau son rythme, sa couleur ou son instrumentation. Les paramètres fournis en dehors de `briefs` s’appliquent à toute la collection.
+
+```json
+{
+  "title": "Traversée",
+  "briefs": [
+    "Village folk en do majeur, 84 BPM, en 6/8",
+    "Forêt nocturne en ré mineur, 66 BPM, sans batterie",
+    "Poursuite rock en mi mineur, 148 BPM, énergie intense"
+  ],
+  "instruments": ["piano"],
+  "duration_seconds": 25
+}
+```
+
+Le manifeste `report_path` relie chaque brief à sa préécoute et à son `project_path`. Pour refaire un morceau, reprenez `shared_options`, ajustez son `brief` et envoyez-le avec son `seed` et `variants: 1`. Cette génération fournit un projet indépendant. Passez à `finish_music` le `project_path` de chaque morceau à livrer.
+
 `draft_music` propose un phrasé chantant pour les briefs généraux et certaines demandes mélodiques. Ce mode conserve le rythme du thème au fil des accords, favorise les intervalles proches et atténue les accompagnements dans les sections mélodiques. Passez `phrasing: "lyrical"` pour le choisir dans `draft_music` ou `create_music`. `phrasing: "style"` sélectionne le phrasé du genre. Le réglage est conservé dans la partition. Pour une esquisse à partir de timbres synthétisés, utilisez `palette: "synth"` et éventuellement `patch_paths` et `patch_roles`.
 
 Le phrasé chantant peut annoncer le thème par un fragment, varier le rythme de sa réponse et prolonger la reprise sur un autre instrument. Dans un arrangement explicite, `theme_treatment` choisit le traitement de la section. `fragment` garde la première cellule, `reprise` ajoute une levée si la fin du motif laisse la place, `augmentation` double les durées de la cellule et `sequence` répète cette cellule une tierce diatonique plus haut. `instruments.mel` choisit l’instrument de la mélodie. Les motifs et leurs traitements sont conservés lors d’une retouche de section.
@@ -266,7 +285,13 @@ Cherche les styles avec `category: "music"`, les effets avec `"sfx"`, les boucle
 
 Les nouvelles générations retournent `managed_outputs` avec le dossier et les identifiants de leurs fichiers. Utilise `action: "list"` et le même `output_dir` pour retrouver les fichiers actifs ou archivés, avec `offset` et `limit` pour parcourir les résultats.
 
+Avec `action: "list"`, `file_type: "project"` et `state: "active"`, l’inventaire retourne les projets musicaux prêts à rouvrir. Passe leur `path` comme `project_path` à `preview_music`, `inspect_score` ou `edit_music`. Après une retouche, `versions[].project_path` permet d’enchaîner directement sur la préécoute ou le master.
+
 `action: "archive"` déplace un `file_id` vers l’archive locale du dossier de sortie. `action: "restore"` remet le fichier à sa place si le chemin est disponible. Le rangement est réversible et les générations enregistrées par cette version apparaissent dans l’inventaire.
+
+### Reprendre un effet ou une ambiance
+
+Réutilise `create_sfx` ou `create_ambience` avec le `file_id` du WAV dans `source_file_id` et son dossier dans `source_output_dir`. Indique les seuls réglages à modifier, par exemple `duration_seconds: 20` et `volume: 0.7` pour une boucle de pluie. Les autres réglages, dont la graine, sont repris du rendu enregistré. Chaque variante est écrite dans un nouveau sous-dossier et renvoie ses réglages dans `render_settings`. Cette reprise s’applique aux effets et ambiances générés avec une version qui enregistre ces réglages.
 
 ### `create_music`
 

@@ -17,12 +17,13 @@ const PKG = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'
 
 const SUPPORTED_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18'];
 const PROTOCOL_FALLBACK = '2025-06-18';
-const LEGACY_TOOLS = TOOLS.map(({ outputSchema, ...tool }) => tool);
+const LEGACY_TOOLS = TOOLS.map(({ title, outputSchema, ...tool }) => tool);
 let negotiatedProtocol = PROTOCOL_FALLBACK;
 
 const INSTRUCTIONS = [
   'SoundMCP compose des instrumentaux sans voix et des effets sonores pour jeux et médias.',
-  'Pour une demande musicale, appelle draft_music avec le brief en une phrase. Le résultat donne des préécoutes à niveau égal et trois chemins de projets.',
+  'Pour explorer une idée musicale, donne le brief à draft_music. Le résultat contient un à trois projets éditables avec leurs préécoutes à niveau égal. Pour produire directement depuis un style déjà choisi, utilise create_music.',
+  'Pour créer plusieurs morceaux distincts, donne à draft_music trois à six briefs, un par morceau. Précise les contrastes de rythme, d’harmonie ou d’instrumentation et les contraintes communes. Pour refaire un seul morceau, utilise son brief et sa graine avec variants=1 et les réglages shared_options de la collection.',
   'Pour une musique chaleureuse ou chantante, utilise phrasing: lyrical. Il adapte les hauteurs aux accords, garde le rythme du thème et laisse de la place à la mélodie. palette: synth privilégie les sons synthétisés.',
   'En phrasé lyrical, une introduction peut annoncer le thème par un fragment, la reprise développe sa réponse et le contrechant entre dans les respirations.',
   'Si tu as un thème précis, donne motif à draft_music. Les esquisses harmonisent les notes tenues et conservent le motif. reprise_treatment accepte sequence pour répéter la cellule plus haut ou augmentation pour l’étirer.',
@@ -45,7 +46,7 @@ const INSTRUCTIONS = [
   'palette: studio sélectionne les prises instrumentales. Le paramètre save_project de create_music conserve la partition éditable pour edit_music.',
   'editions: ["loop", "calm", "intense", "transition"] produit des versions alignées, sur loop_region si fourni. cuts: [15,30,60] pour des versions courtes dans finish_music.',
   'Conserve la version, les paramètres et le seed pour reproduire un rendu.',
-  'manage_outputs liste les fichiers enregistrés après un rendu. Utilise archive ou restore uniquement sur demande de l’utilisateur, avec l’identifiant et le dossier de la sortie.',
+  'manage_outputs liste les fichiers enregistrés après un rendu. Utilise file_type=project pour retrouver les projets et archive ou restore sur demande de l’utilisateur. Pour retoucher un effet ou une ambiance, repasse son file_id comme source_file_id au même outil, avec le dossier de la source.',
   'Options techniques sur les trois outils de rendu : sampling_rate (22050/44100/48000) et mono (WAV 1 canal, taille moitié).',
 ].join(' ');
 

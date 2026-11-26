@@ -37,7 +37,7 @@ const { calibrateSound, loadCalibrations, applyCalibrations } = require('./sound
 const { mixSong } = require('./automatic-mix');
 const { CONTOURS, MAX_BEFORE, buildWindow, shapeBuild } = require('./build-shaping');
 const { CHOICES, PREFERENCES, readPreferences, applyPreference, withPreferences, choiceManifest, rememberChoice } = require('./music-preferences');
-const { ACTIONS: OUTPUT_ACTIONS, recordOutputs, manageOutputs } = require('./output-library');
+const { ACTIONS: OUTPUT_ACTIONS, STATES: OUTPUT_STATES, recordOutputs, outputRenderSettings, manageOutputs } = require('./output-library');
 const { toolContract } = require('./tool-contracts');
 
 const DEFAULT_OUTPUT_DIR = path.join(__dirname, '..', 'output');
@@ -92,25 +92,37 @@ const CHORD_SCHEMA = { anyOf: [{ type: 'integer', minimum: 1, maximum: 7 }, { ty
 const METER_SCHEMA = { type: 'array', minItems: 2, maxItems: 2, items: { type: 'integer' }, description: 'Numérateur et dénominateur, ex. [3,4] ou [6,8].' };
 const TEMPO_SCHEMA = { type: 'number', minimum: 40, maximum: 220, description: 'Tempo en noires par minute.' };
 const SECTION_SELECTOR = { anyOf: [{ type: 'string' }, { type: 'integer', minimum: 1 }], description: 'Nom unique ou numéro à partir de 1.' };
-const REGION_SCHEMA = { type: 'object', required: ['start_bar', 'bars'], properties: {
-  start_bar: { type: 'integer', minimum: 1 }, bars: { type: 'integer', minimum: 1 },
+const REGION_SCHEMA = { type: 'object', description: 'Plage explicite dans la partition. Utilise region ou section.', required: ['start_bar', 'bars'], properties: {
+  start_bar: { type: 'integer', minimum: 1, description: 'Première mesure du passage, numérotée à partir de 1.' },
+  bars: { type: 'integer', minimum: 1, description: 'Nombre de mesures consécutives disponibles à partir de start_bar.' },
 } };
-const PITCH_SCHEMA = { anyOf: [{ type: 'integer', minimum: 0, maximum: 127 }, { type: 'string', description: 'Note avec octave, ex. C4 ou Bb3.' }] };
+const PITCH_SCHEMA = { description: 'Numéro MIDI ou note avec octave, par exemple 60 ou C4.',
+  anyOf: [{ type: 'integer', minimum: 0, maximum: 127 }, { type: 'string' }] };
 const NUMBER = (minimum, maximum) => ({ type: 'number', minimum, maximum });
 const UNIT = NUMBER(0, 1);
-const GESTURE_SCHEMA = { type: 'object', additionalProperties: false, properties: {
+const SEED_SCHEMA = { type: 'integer', minimum: 0, maximum: 4294967295,
+  description: 'Graine aléatoire. Réutilise-la avec les mêmes entrées et la même version pour reproduire le rendu ou les mesures.' };
+const OUTPUT_DIR = { type: 'string', description: 'Dossier parent des fichiers locaux. Par défaut, le dossier output de SoundMCP.' };
+const PROJECT_OUTPUT_DIR = { type: 'string', description: 'Dossier parent des exports. Par défaut, le dossier du fichier project_path.' };
+const SAMPLING_RATE = { type: 'integer', enum: SR_CHOICES, description: 'Fréquence d’échantillonnage du WAV en hertz.' };
+const MONO = { type: 'boolean', description: 'true exporte le WAV sur un seul canal, false en stéréo.' };
+const GESTURE_SCHEMA = { type: 'object', additionalProperties: false,
+  description: 'Façon de jouer la note, disponible pour les patchs modaux et guides d’onde.', properties: {
   position: { ...UNIT, description: 'Point de frappe ou de pincement. Change les résonances excitées.' },
   hardness: { ...UNIT, description: 'De contact souple à frappe dure et brillante.' },
   damping: { ...UNIT, description: 'Amortissement du matériau pendant ce geste.' },
   glide_ms: { ...NUMBER(0, MAX_GLIDE_MS), description: 'Durée en millisecondes du glissé depuis la note précédente avec slide ou legato.' },
 } };
-const MEASURE_NOTES_SCHEMA = { type: 'array', maxItems: 64, items: { type: 'object', required: ['beat'], properties: {
+const MEASURE_NOTES_SCHEMA = { type: 'array', maxItems: 64,
+  description: 'Notes de remplacement du pupitre dans cette mesure. Donne pitch, pitches ou degree pour les notes, et hit pour le pupitre drum. Une liste vide efface le contenu de ce pupitre dans la mesure.',
+  items: { type: 'object', required: ['beat'], properties: {
   beat: { type: 'number', minimum: 0, description: 'Temps à partir de zéro, dans le dénominateur de la mesure.' },
-  duration: { type: 'number', minimum: 0.025, maximum: 32 }, pitch: PITCH_SCHEMA,
-  pitches: { type: 'array', minItems: 1, maxItems: 8, items: PITCH_SCHEMA },
-  degree: { type: 'integer', minimum: -13, maximum: 22 }, hit: { type: 'string', enum: DRUMS },
-  velocity: { type: 'number', minimum: 0.05, maximum: 1 },
-  pan: { type: 'number', minimum: -1, maximum: 1 },
+  duration: { type: 'number', minimum: 0.025, maximum: 32, description: 'Durée dans la même unité de temps que beat. Par défaut 0,5.' }, pitch: PITCH_SCHEMA,
+  pitches: { type: 'array', minItems: 1, maxItems: 8, items: PITCH_SCHEMA, description: 'Hauteurs simultanées d’un accord.' },
+  degree: { type: 'integer', minimum: -13, maximum: 22, description: 'Degré de la gamme locale. 1 désigne la tonique et 8 son octave.' },
+  hit: { type: 'string', enum: DRUMS, description: 'Frappe à jouer sur le pupitre drum, par exemple kick.' },
+  velocity: { type: 'number', minimum: 0.05, maximum: 1, description: 'Force relative de la note. Par défaut 0,72.' },
+  pan: { type: 'number', minimum: -1, maximum: 1, description: 'Panoramique de gauche (-1) à droite (1), avec 0 au centre.' },
   timbre: { type: 'number', minimum: 0, maximum: 1, description: 'Couleur de la voix, de sombre à brillante ou plus saturée selon le son.' },
   articulation: { type: 'string', enum: [...ARTICULATIONS, 'ghost'] },
   gesture: GESTURE_SCHEMA,
@@ -119,17 +131,21 @@ const MEASURE_NOTES_SCHEMA = { type: 'array', maxItems: 64, items: { type: 'obje
 } } };
 const CUSTOM_ID = { type: 'string', pattern: '^custom-[a-z0-9][a-z0-9-]{0,63}$' };
 const PATCH_IMPORT = {
-  patch_paths: { type: 'array', maxItems: 16, items: { type: 'string' }, description: 'Fichiers patch_path renvoyés par design_sound.' },
+  patch_paths: { type: 'array', maxItems: 16, items: { type: 'string' }, description: 'Chemins patch_path renvoyés par design_sound ou vary_sound pour importer les sons correspondants.' },
   calibration_paths: { type: 'array', maxItems: 16, items: { type: 'string' },
     description: 'Profils de niveau par registre renvoyés par calibrate_sound, pour un son et un pupitre.' },
   patch_roles: { type: 'object', properties: Object.fromEntries(PATCH_ROLES.map((role) => [role, CUSTOM_ID])), additionalProperties: false,
-    description: 'Applique un son personnel importé à un pupitre dans la partition.' },
+    description: 'Associe les pupitres aux identifiants id des sons importés par patch_paths, par exemple {"mel":"custom-cloche"}.' },
 };
 const OSCILLATOR_PATCH_SCHEMA = { type: 'object', required: ['layers'], additionalProperties: false, properties: {
-  layers: { type: 'array', minItems: 1, maxItems: 8, items: { type: 'object', properties: {
-    wave: { type: 'string', enum: WAVES }, gain: NUMBER(0, 1), ratio: NUMBER(0.125, 16), detune_cents: NUMBER(-240, 240),
-    pan: NUMBER(-1, 1), pulse_width: NUMBER(0.08, 0.92), envelope: { type: 'object', properties: {
-      attack: NUMBER(0.002, 6), decay: NUMBER(0, 8), sustain: NUMBER(0, 1), release: NUMBER(0.008, 4),
+  layers: { type: 'array', minItems: 1, maxItems: 8, description: 'Oscillateurs superposés. Commence par une couche à ratio 1 pour la note fondamentale.', items: { type: 'object', properties: {
+    wave: { type: 'string', enum: WAVES, description: 'Forme d’onde de la couche.' },
+    gain: { ...UNIT, description: 'Niveau relatif de cette couche.' },
+    ratio: { ...NUMBER(0.125, 16), description: 'Multiplicateur de la fréquence de la note. 2 donne l’octave au-dessus.' },
+    detune_cents: { ...NUMBER(-240, 240), description: 'Décalage supplémentaire de hauteur en centièmes de demi-ton.' },
+    pan: NUMBER(-1, 1), pulse_width: NUMBER(0.08, 0.92), envelope: { type: 'object',
+      description: 'Enveloppe de gain. attack, decay et release sont en secondes, sustain est le niveau tenu entre 0 et 1.', properties: {
+      attack: NUMBER(0.002, 6), decay: NUMBER(0, 8), sustain: UNIT, release: NUMBER(0.008, 4),
     } }, pitch_drop: { type: 'object', properties: { cents: NUMBER(-3200, 3200), seconds: NUMBER(0.004, 4) } },
     fm: { type: 'object', properties: { ratio: NUMBER(0.125, 16), index: NUMBER(0, 7) } },
   } } },
@@ -141,9 +157,10 @@ const OSCILLATOR_PATCH_SCHEMA = { type: 'object', required: ['layers'], addition
 } };
 const MODAL_PATCH_SCHEMA = { type: 'object', required: ['modal'], additionalProperties: false, properties: {
   modal: { type: 'object', required: ['modes'], additionalProperties: false, properties: {
-    modes: { type: 'array', minItems: 1, maxItems: 12, items: { type: 'object', additionalProperties: false, properties: {
-      ratio: NUMBER(0.25, 32), gain: UNIT, decay_seconds: NUMBER(0.025, 8),
-      position_node: { type: 'integer', minimum: 1, maximum: 12 }, pan: NUMBER(-0.7, 0.7),
+    modes: { type: 'array', minItems: 1, maxItems: 12, description: 'Résonances du matériau. Garde au moins un mode de gain positif.', items: { type: 'object', additionalProperties: false, properties: {
+      ratio: { ...NUMBER(0.25, 32), description: 'Fréquence de cette résonance en multiple de la note.' }, gain: UNIT,
+      decay_seconds: { ...NUMBER(0.025, 8), description: 'Temps de décroissance de cette résonance en secondes.' },
+      position_node: { type: 'integer', minimum: 1, maximum: 12, description: 'Indice du mode utilisé pour moduler son excitation selon gesture.position.' }, pan: NUMBER(-0.7, 0.7),
     } } },
     contact: NUMBER(0, 0.7), damping: UNIT,
     friction: { type: 'object', additionalProperties: false,
@@ -155,15 +172,21 @@ const WAVEGUIDE_PATCH_SCHEMA = { type: 'object', required: ['waveguide'], additi
   waveguide: { type: 'object', additionalProperties: false, properties: {
     brightness: UNIT, stiffness: UNIT, contact: NUMBER(0, 0.7), release_damping: UNIT,
     decay_seconds: { ...NUMBER(0.12, 8), description: 'Durée visée d’atténuation de 60 dB pour la corde libre.' },
-    body: { type: 'object', additionalProperties: false, properties: {
-      frequency: NUMBER(45, 1800), resonance: NUMBER(0.4, 8), mix: NUMBER(0, 0.75),
+    body: { type: 'object', additionalProperties: false, description: 'Résonance de la caisse ajoutée au son de la corde.', properties: {
+      frequency: { ...NUMBER(45, 1800), description: 'Fréquence de résonance de la caisse en hertz.' },
+      resonance: { ...NUMBER(0.4, 8), description: 'Facteur Q de la résonance. Augmente-le pour concentrer davantage la réponse autour de frequency.' },
+      mix: { ...NUMBER(0, 0.75), description: 'Part de la caisse dans le son final.' },
     } },
   } },
 } };
-const PATCH_SCHEMA = { type: 'object', oneOf: [OSCILLATOR_PATCH_SCHEMA, MODAL_PATCH_SCHEMA, WAVEGUIDE_PATCH_SCHEMA] };
+const PATCH_SCHEMA = { type: 'object',
+  description: 'Réglages du son fournis en ligne. Choisis layers pour des oscillateurs, modal pour un matériau frappé ou frotté, ou waveguide pour une corde pincée.',
+  oneOf: [OSCILLATOR_PATCH_SCHEMA, MODAL_PATCH_SCHEMA, WAVEGUIDE_PATCH_SCHEMA],
+  examples: [{ layers: [{ wave: 'sine', ratio: 1 }] }, { modal: { modes: [{ ratio: 1, gain: 0.8 }] } }, { waveguide: { brightness: 0.5 } }],
+};
 const PATCH_SOURCE_PROPERTIES = {
-  patch: PATCH_SCHEMA, patch_path: { type: 'string', description: 'Chemin du patch créé par design_sound ou vary_sound.' },
-  title: { type: 'string', maxLength: 80 },
+  patch: PATCH_SCHEMA, patch_path: { type: 'string', description: 'Chemin local patch_path renvoyé par design_sound ou vary_sound. Utilise-le pour charger un patch enregistré.' },
+  title: { type: 'string', maxLength: 80, description: 'Nom du son fourni en ligne, utilisé pour son libellé et ses fichiers.' },
 };
 const PATCH_SOURCE_REQUIRED = [{ required: ['patch'] }, { required: ['patch_path'] }];
 const CATALOG_ID = { type: 'string', enum: Object.keys(AUDITION_SOUNDS) };
@@ -174,7 +197,7 @@ const SOUND_LIST_PROPERTIES = {
   sounds: { type: 'array', minItems: 1, maxItems: 12, items: { anyOf: [CATALOG_ID, CUSTOM_ID] },
     description: 'Identifiants à écouter dans l’ordre avec les notes de démonstration. Fournis patch_paths pour les sons personnels.' },
   patch_paths: PATCH_IMPORT.patch_paths,
-  timbre: UNIT,
+  timbre: { ...UNIT, description: 'Couleur commune aux extraits du nuancier sounds. Utilise notes[].timbre pour chaque note d’une phrase.' },
 };
 const PHRASE_ONLY_FIELDS = ['instrument', 'patch', 'patch_path', 'notes', 'tail_seconds', 'sampling_rate', 'mono', 'title'];
 const PLAY_SOUND_MODES = [
@@ -182,15 +205,18 @@ const PLAY_SOUND_MODES = [
   { required: ['sounds'], not: { anyOf: PHRASE_ONLY_FIELDS.map((name) => ({ required: [name] })) } },
 ];
 const AUDITION_PROPERTIES = {
-  notes: { type: 'array', minItems: 1, maxItems: 32, description: 'Phrase à jouer. Trois notes de démonstration par défaut.',
+  notes: { type: 'array', minItems: 1, maxItems: 32, description: 'Phrase à jouer en secondes. Par défaut, trois notes de démonstration. Pour une note isolée, passe [{"at":0,"pitch":"C4"}].',
     items: { type: 'object', required: ['at', 'pitch'], properties: {
       at: { ...NUMBER(0, 14), description: 'Début en secondes. Plusieurs notes au même instant forment un accord.' },
-      pitch: PITCH_SCHEMA, duration: NUMBER(0.025, 8), velocity: NUMBER(0.05, 1), pan: NUMBER(-1, 1), timbre: UNIT,
+      pitch: PITCH_SCHEMA, duration: { ...NUMBER(0.025, 8), description: 'Tenue en secondes. Par défaut 0,55.' },
+      velocity: MEASURE_NOTES_SCHEMA.items.properties.velocity, pan: MEASURE_NOTES_SCHEMA.items.properties.pan,
+      timbre: MEASURE_NOTES_SCHEMA.items.properties.timbre,
       articulation: { type: 'string', enum: ARTICULATIONS }, gesture: GESTURE_SCHEMA,
       expression: MEASURE_NOTES_SCHEMA.items.properties.expression,
     } } },
-  tail_seconds: NUMBER(0.12, 6), sampling_rate: { type: 'integer', enum: SR_CHOICES }, mono: { type: 'boolean' },
-  seed: { type: 'integer', minimum: 0, maximum: 4294967295 }, output_dir: { type: 'string' },
+  tail_seconds: { ...NUMBER(0.12, 6), description: 'Temps après la dernière note pour laisser décroître le son. Par défaut 1,45 s, dans un rendu de 24 s maximum.' },
+  sampling_rate: { ...SAMPLING_RATE, description: 'Fréquence de la phrase WAV en hertz. Par défaut 48000.' }, mono: MONO,
+  seed: SEED_SCHEMA, output_dir: OUTPUT_DIR,
 };
 const INTERPRETATION_PROPERTIES = {
   performance: { description: 'Phrasé déterministe par pupitre. null le retire d’un projet.', anyOf: [{ type: 'null' }, {
@@ -253,20 +279,21 @@ const ARRANGEMENT_SCHEMA = {
 
 const EDITION_PROPERTIES = {
   editions: { type: 'array', minItems: 1, maxItems: 4, uniqueItems: true, items: { type: 'string', enum: EDITIONS },
-    description: 'Ajoute des éditions alignées au master : boucle standard, calme, intense et transition calme vers intense.' },
-  loop_region: { type: 'object', properties: { start_bar: { type: 'integer', minimum: 1 }, bars: { type: 'integer', minimum: 1 } },
-    description: 'Région commune des variantes. La numérotation des mesures commence à 1.' },
+    description: 'Éditions supplémentaires sur la même plage. loop boucle le morceau, calm et intense changent la densité, transition relie les deux.' },
+  loop_region: { type: 'object', properties: REGION_SCHEMA.properties,
+    description: 'Plage commune aux editions, à partir de la mesure 1. Sans plage explicite, SoundMCP choisit une section musicale.' },
 };
 
 const PALETTE_SCHEMA = { type: 'string', enum: PALETTES,
   description: 'studio utilise les prises instrumentales enregistrées dont la harpe, le vibraphone et les violoncelles. synth utilise la synthèse.' };
 
-const PROJECT_SCHEMA = { type: 'string', description: 'Chemin local .soundmcp.json renvoyé par draft_music, create_music ou edit_music.' };
+const PROJECT_SCHEMA = { type: 'string',
+  description: 'Chemin local .soundmcp.json. Réutilise project_path d’une esquisse, d’une prise A/B ou d’une version exportée.' };
 const SOUND_DESIGN_SCHEMA = { type: 'string', enum: SOUND_DESIGNS, description: 'evolving fait varier les timbres, les textures et le traitement entre sections.' };
 const BUILD_PROPERTIES = {
   arrival_bar: { type: 'integer', minimum: 2, description: 'Première mesure de la reprise ou de l’arrivée.' },
-  before_bars: { type: 'integer', minimum: 1, maximum: MAX_BEFORE },
-  amount: UNIT,
+  before_bars: { type: 'integer', minimum: 1, maximum: MAX_BEFORE, description: 'Nombre de mesures de montée avant l’arrivée. Par défaut, jusqu’à 3 mesures disponibles.' },
+  amount: { ...UNIT, description: 'Intensité de la montée. 1 applique l’effet complet, 0 le désactive.' },
 };
 const PHRASING_SCHEMA = { type: 'string', enum: PHRASINGS,
   description: 'lyrical conserve le rythme du thème, ajuste ses notes aux accords et ménage des respirations. style suit le phrasé du genre.' };
@@ -274,47 +301,110 @@ const MIX_PROPERTIES = {
   auto_mix: { type: 'boolean', description: 'Mesure les pupitres et équilibre chaque section. Actif par défaut dans les esquisses lyrical.' },
   mix_strength: { ...UNIT, description: 'Intensité de la correction du mix automatique.' },
 };
-const PROFILE_PATH = { type: 'string', description: 'Chemin local du profil renvoyé par learn_music_preference.' };
+const PROFILE_PATH = { type: 'string', description: 'Chemin du profil de préférences à lire, renvoyé par learn_music_preference.' };
 const PREFERENCE_PROPERTIES = { profile_path: PROFILE_PATH,
   use_preferences: { type: 'boolean', description: 'Les esquisses utilisent le profil local existant par défaut. false les compose sans profil.' } };
 const REGION_PROPERTIES = {
-  section: SECTION_SELECTOR, region: REGION_SCHEMA, max_seconds: { type: 'number', minimum: 4, maximum: 45 },
-  full: { type: 'boolean', description: 'Compare les morceaux complets de 45 s ou moins, sans recadrage.' },
+  section: { ...SECTION_SELECTOR, description: 'Section à écouter, par nom unique ou numéro à partir de 1. Utilise section ou region.' },
+  region: REGION_SCHEMA,
+  max_seconds: { type: 'number', minimum: 4, maximum: 45, description: 'Durée cible de l’extrait. Par défaut 18 s. Le rendu garde au moins une mesure entière.' },
+  full: { type: 'boolean', description: 'true rend le projet entier s’il dure au plus 45 s. Omet alors section, region et max_seconds.' },
 };
+const REGION_SELECTION = { allOf: [
+  { not: { required: ['section', 'region'] } },
+  { if: { properties: { full: { const: true } }, required: ['full'] },
+    then: { not: { anyOf: [{ required: ['section'] }, { required: ['region'] }, { required: ['max_seconds'] }] } } },
+] };
 const MUSIC_COMPARISON_CRITERIA = [...PREFERENCES, 'build'];
 const EXPORT_PROPERTIES = {
-  title: { type: 'string' }, format: { type: 'string', enum: ['wav', 'midi', 'both'] },
-  bit_depth: { type: 'integer', enum: [16, 24] }, sampling_rate: { type: 'integer', enum: SR_CHOICES },
-  mono: { type: 'boolean' }, stems: { type: 'boolean' }, output_dir: { type: 'string' }, palette: PALETTE_SCHEMA,
+  title: { type: 'string', description: 'Titre de la version exportée et base du nom de ses fichiers.' },
+  format: { type: 'string', enum: ['wav', 'midi', 'both'], description: 'Choisis le rendu audio WAV, la partition MIDI ou les deux.' },
+  bit_depth: { type: 'integer', enum: [16, 24], description: 'Résolution du WAV principal et des éditions, en bits.' },
+  sampling_rate: SAMPLING_RATE, mono: MONO,
+  stems: { type: 'boolean', description: 'Ajoute un WAV par pupitre. Utilise format wav ou both.' },
+  output_dir: PROJECT_OUTPUT_DIR, palette: PALETTE_SCHEMA,
   ...EDITION_PROPERTIES,
+};
+const EXPORT_CONSTRAINTS = {
+  allOf: [
+    { if: { required: ['loop_region'] }, then: { required: ['editions'] } },
+    { if: { properties: { format: { const: 'midi' } }, required: ['format'] }, then: { properties: { stems: { const: false } } } },
+  ],
+};
+const MUSIC_EDIT_TYPES = {
+  gain: ['section', 'part', 'db'],
+  mute: ['section', 'part'],
+  replace_section: ['section', 'replacement'],
+  write_measure: ['bar', 'part', 'notes'],
+  shape_build: ['arrival_bar', 'contour'],
+};
+const PROCEDURAL_AUDIO_PROPERTIES = {
+  source_file_id: { type: 'string', description: 'Identifiant d’un rendu précédent du même outil, issu de managed_outputs ou de manage_outputs. Fournis source_file_id ou kind.' },
+  source_output_dir: { type: 'string', description: 'Dossier de la sortie source, indiqué dans managed_outputs.output_dir. À défaut, utilise output_dir ou le dossier output de SoundMCP.' },
+  seed: { ...SEED_SCHEMA, description: 'Graine du rendu. Une variante reprend celle de la source par défaut.' },
+  volume: { ...NUMBER(0.05, 1), description: 'Volume relatif. Par défaut, reprend la valeur de la source ou utilise 1 pour une création.' },
+  sampling_rate: { ...SAMPLING_RATE, description: 'Fréquence du WAV en hertz. Par défaut, reprend celle de la source ou utilise 44100 pour une création.' },
+  mono: { ...MONO, description: 'true produit un WAV mono, false un WAV stéréo. Par défaut, reprend la source ou produit un WAV stéréo.' },
+  output_dir: { ...OUTPUT_DIR, description: 'Dossier parent du nouveau rendu. Pour une variante, source_output_dir sert de valeur par défaut.' },
+};
+const PROCEDURAL_AUDIO_MODES = [{ required: ['kind'] }, { required: ['source_file_id'] }];
+const DRAFT_BRIEF = { type: 'string', minLength: 1, maxLength: 1600, pattern: '\\S' };
+const DRAFT_MUSIC_OPTIONS = {
+  style: { type: 'string', enum: STYLE_IDS, description: 'Force un identifiant de style issu de list_catalog(category=music). À défaut, SoundMCP le déduit du brief.' },
+  duration_seconds: { type: 'number', minimum: 5, maximum: 600, description: 'Durée visée du morceau complet en secondes. Le bouclage peut l’arrondir à une mesure entière.' },
+  tempo: TEMPO_SCHEMA, meter: METER_SCHEMA, key: { type: 'string', description: 'Tonalité globale, par exemple F minor. Cette valeur prime sur le brief.' },
+  energy: { type: 'string', enum: ['gentle', 'balanced', 'rising', 'strong'], description: 'Trajectoire d’énergie. rising accentue la montée, strong demande un arrangement soutenu.' },
+  loop: { type: 'boolean', description: 'true prépare un morceau bouclable, false demande une fin musicale.' },
+  sound_design: SOUND_DESIGN_SCHEMA,
+  orchestral_percussion: ORCHESTRAL_SCHEMA,
+  phrasing: PHRASING_SCHEMA, palette: PALETTE_SCHEMA,
+  motif: MOTIF_SCHEMA,
+  reprise_treatment: { type: 'string', enum: THEME_TREATMENTS, description: 'Développe la cellule du thème dans la reprise.' },
+  build_contour: { type: 'string', enum: CONTOURS, description: 'Forme l’accompagnement juste avant la reprise.' },
+  ...MIX_PROPERTIES, ...PREFERENCE_PROPERTIES,
+  ...INTERPRETATION_PROPERTIES,
+  ...PATCH_IMPORT,
+  instruments: { type: 'array', items: { type: 'string', enum: PLAYABLE }, description: 'Timbres à privilégier dans l’orchestration.' },
+  without: { type: 'array', items: { type: 'string', enum: PLAYABLE }, description: 'Timbres à exclure de l’orchestration.' },
 };
 
 const TOOLS = [
   {
     name: 'design_sound',
-    description: 'Crée un son de zéro par oscillateurs, synthèse modale (matériau frappé ou frotté) ou guide d’onde (corde pincée). Sur un modèle physique, gesture règle la position, la dureté et l’amortissement du contact. Renvoie un WAV, un patch éditable et un identifiant pour les morceaux.',
-    inputSchema: { type: 'object', properties: { brief: { type: 'string', maxLength: 1000 }, patch: PATCH_SCHEMA,
-      title: { type: 'string', maxLength: 80 }, note: PITCH_SCHEMA, duration_seconds: NUMBER(0.7, 12), gate_seconds: NUMBER(0.03, 10),
-      velocity: NUMBER(0.05, 1), gesture: GESTURE_SCHEMA,
-      seed: { type: 'integer', minimum: 0, maximum: 4294967295 }, output_dir: { type: 'string' },
+    title: 'Créer un timbre',
+    description: 'Crée un timbre inédit. Donne brief pour partir d’une idée ou patch pour contrôler la synthèse. Écrit un WAV et un patch éditable dans un nouveau sous-dossier. Passe patch_path à play_sound pour l’écouter ou à vary_sound pour le décliner.',
+    inputSchema: { type: 'object', properties: {
+      brief: { type: 'string', maxLength: 1000, description: 'Décris le matériau, le geste et le caractère du timbre, par exemple « cloche métallique frappée, sombre et courte ». Fournis brief ou patch.' },
+      patch: PATCH_SCHEMA,
+      title: PATCH_SOURCE_PROPERTIES.title,
+      note: { ...PITCH_SCHEMA, description: 'Hauteur de la note de démonstration. Par défaut C4.' },
+      duration_seconds: { ...NUMBER(0.7, 12), description: 'Durée totale du WAV de démonstration. Par défaut 4 s.' },
+      gate_seconds: { ...NUMBER(0.03, 10), description: 'Temps de tenue de la note en secondes. Laisse au moins 0,15 s entre la fin de la tenue et la fin du WAV.' },
+      velocity: { ...NUMBER(0.05, 1), description: 'Force relative de la note de démonstration. Par défaut 0,78.' }, gesture: GESTURE_SCHEMA,
+      seed: SEED_SCHEMA, output_dir: OUTPUT_DIR,
     }, oneOf: [{ required: ['brief'] }, { required: ['patch'] }] },
   },
   {
     name: 'play_sound',
-    description: 'Écoute un son intégré ou personnel avec une phrase en secondes fournie dans notes. Pour parcourir le nuancier, passe jusqu’à douze identifiants dans sounds et reçois un seul WAV à sonie alignée avec des repères.',
+    title: 'Écouter des timbres',
+    description: 'Joue une phrase avec un timbre choisi par instrument, patch ou patch_path. Pour parcourir rapidement le nuancier, donne sounds seul comme source. Écrit un WAV par appel dans un nouveau sous-dossier. Pour jouer la même phrase avec plusieurs timbres à sonie égale, utilise compare_sounds.',
     inputSchema: { type: 'object', properties: { ...SOUND_SOURCE_PROPERTIES, ...AUDITION_PROPERTIES, ...SOUND_LIST_PROPERTIES },
       oneOf: PLAY_SOUND_MODES },
   },
   {
     name: 'calibrate_sound',
-    description: 'Joue un patch à trois forces dans plusieurs registres, mesure l’attaque et la tenue, puis exporte une courbe de gain pour un pupitre. Réutilise la calibration dans calibration_paths.',
+    title: 'Étalonner un timbre',
+    description: 'Étalonne un patch pour l’intégrer à un pupitre. Mesure l’attaque et la tenue à trois forces par hauteur, puis écrit la courbe de gain dans un nouveau sous-dossier. Passe calibration_path dans calibration_paths de draft_music, create_music ou edit_music. Pour simplement écouter le timbre, utilise play_sound.',
     inputSchema: { type: 'object', properties: { ...PATCH_SOURCE_PROPERTIES,
-      role: { type: 'string', enum: PATCH_ROLES }, notes: { type: 'array', minItems: 3, maxItems: 6, items: PITCH_SCHEMA },
-      seed: { type: 'integer', minimum: 0, maximum: 4294967295 }, output_dir: { type: 'string' },
+      role: { type: 'string', enum: PATCH_ROLES, description: 'Pupitre à équilibrer, par exemple mel pour mélodie ou bass pour basse. Adapte le registre et le niveau cible. Par défaut mel.' },
+      notes: { type: 'array', minItems: 3, maxItems: 6, items: PITCH_SCHEMA,
+        description: 'Trois à six hauteurs distinctes couvrant le registre du pupitre. À défaut, C3, C4 et C5 pour la plupart des pupitres, une octave plus bas pour bass.' },
+      seed: SEED_SCHEMA, output_dir: OUTPUT_DIR,
     }, oneOf: PATCH_SOURCE_REQUIRED },
   },
   {
     name: 'compare_sounds',
+    title: 'Comparer des timbres',
     description: 'Évalue deux à quatre timbres avec la même phrase. Écrit un WAV séparé par timbre à sonie égale. Active blind pour mélanger les prises et placer les identités dans une clé séparée.',
     inputSchema: { type: 'object', required: ['sounds'], properties: {
       sounds: { type: 'array', minItems: 2, maxItems: 4, items: { type: 'object', properties: SOUND_SOURCE_PROPERTIES, oneOf: SOUND_SOURCE_REQUIRED } },
@@ -323,15 +413,17 @@ const TOOLS = [
   },
   {
     name: 'vary_sound',
-    description: 'Dérive jusqu’à quatre patches d’un son, plus brillants, sombres, brefs ou longs. Livre les réglages éditables et des WAV à sonie commune avec le son de départ.',
+    title: 'Décliner un timbre',
+    description: 'Affine un timbre existant à partir de patch ou patch_path. Écrit les variantes éditables et le WAV de référence à sonie alignée dans un nouveau sous-dossier. Pour partir d’un brief inédit, utilise design_sound.',
     inputSchema: { type: 'object', properties: { ...PATCH_SOURCE_PROPERTIES, ...AUDITION_PROPERTIES,
       directions: { type: 'array', minItems: 1, maxItems: DIRECTIONS.length, uniqueItems: true,
-        items: { type: 'string', enum: DIRECTIONS } },
-      amount: NUMBER(0.05, 1),
+        items: { type: 'string', enum: DIRECTIONS }, description: 'Une variante par direction. brighter et darker changent la couleur, shorter et longer changent la durée du son. Par défaut darker, brighter et shorter.' },
+      amount: { ...NUMBER(0.05, 1), description: 'Amplitude de chaque variation, de 0,05 (subtile) à 1 (marquée). Par défaut 0,7.' },
     }, oneOf: PATCH_SOURCE_REQUIRED },
   },
   {
     name: 'list_catalog',
+    title: 'Parcourir le catalogue sonore',
     description: 'Liste les styles musicaux, effets, ambiances ou timbres selon category. Les identifiants de items sont utilisables dans create_music, create_sfx, create_ambience ou play_sound. Lecture seule.',
     inputSchema: { type: 'object', required: ['category'], properties: {
       category: { type: 'string', enum: CATALOG_CATEGORIES },
@@ -339,87 +431,112 @@ const TOOLS = [
   },
   {
     name: 'draft_music',
-    description: 'Transforme un brief français ou anglais en une à trois esquisses d’arrangement. Chaque esquisse fournit une préécoute à sonie égale et un projet éditable à sélectionner pour finish_music.',
-    inputSchema: { type: 'object', required: ['brief'], properties: {
-      brief: { type: 'string', minLength: 1, maxLength: 1600, description: 'Ex. « 75 secondes pour une exploration nocturne, piano feutré, montée progressive, fin calme. »' },
-      variants: { type: 'integer', minimum: 1, maximum: 3, default: 3 },
-      style: { type: 'string', enum: STYLE_IDS }, duration_seconds: { type: 'number', minimum: 5, maximum: 600 },
-      tempo: TEMPO_SCHEMA, meter: METER_SCHEMA, key: { type: 'string' },
-      energy: { type: 'string', enum: ['gentle', 'balanced', 'rising', 'strong'] }, loop: { type: 'boolean' },
-      sound_design: SOUND_DESIGN_SCHEMA,
-      orchestral_percussion: ORCHESTRAL_SCHEMA,
-      phrasing: PHRASING_SCHEMA, palette: PALETTE_SCHEMA,
-      motif: MOTIF_SCHEMA,
-      reprise_treatment: { type: 'string', enum: THEME_TREATMENTS, description: 'Développe la cellule du thème dans la reprise.' },
-      build_contour: { type: 'string', enum: CONTOURS, description: 'Forme l’accompagnement juste avant la reprise.' },
-      ...MIX_PROPERTIES, ...PREFERENCE_PROPERTIES,
-      ...INTERPRETATION_PROPERTIES,
-      ...PATCH_IMPORT,
-      instruments: { type: 'array', items: { type: 'string', enum: PLAYABLE } }, without: { type: 'array', items: { type: 'string', enum: PLAYABLE } },
-      seed: { type: 'integer', minimum: 0, maximum: 4294967295 }, title: { type: 'string' }, output_dir: { type: 'string' },
-    } },
+    title: 'Préparer des esquisses instrumentales',
+    description: 'Explore une idée avec brief ou prépare une collection avec briefs. Chaque appel écrit les projets et les préécoutes à sonie alignée dans un nouveau dossier local. Utilise finish_music pour livrer le projet choisi, ou create_music pour exporter directement depuis un style.',
+    inputSchema: { type: 'object', properties: {
+      brief: { ...DRAFT_BRIEF, description: 'Brief français ou anglais pour une seule idée musicale. Ex. « 75 secondes pour une exploration nocturne, piano feutré et montée progressive. »' },
+      briefs: { type: 'array', minItems: 3, maxItems: 6, items: DRAFT_BRIEF,
+        description: 'Un brief français ou anglais par morceau, dans l’ordre de la collection. Donne à chacun une ambiance, un rythme ou une instrumentation propre. Les réglages explicites, par exemple instruments, sont communs à la collection.' },
+      variants: { type: 'integer', minimum: 1, maximum: 3, description: 'Nombre d’esquisses pour brief, 3 par défaut. Avec briefs, chaque morceau reçoit une seule esquisse.' },
+      ...DRAFT_MUSIC_OPTIONS,
+      seed: SEED_SCHEMA,
+      title: { ...EXPORT_PROPERTIES.title, description: 'Titre des esquisses ou de la collection. Sert à nommer leur dossier.' },
+      output_dir: OUTPUT_DIR,
+    }, oneOf: [{ required: ['brief'] }, { required: ['briefs'] }], not: { required: ['briefs', 'variants'] } },
   },
   {
     name: 'finish_music',
-    description: 'Rend le projet sélectionné en master WAV 48 kHz/24 bits et MIDI. Propose aussi les pistes séparées, trois boucles, une transition et des formats courts de 15, 30 ou 60 secondes avec cadence.',
+    title: 'Livrer un master',
+    description: 'Exporte le master d’un projet déjà choisi. Écrit les livrables et leur manifeste dans un sous-dossier unique, à côté du projet par défaut. Le rendu complet peut prendre plus de temps qu’un extrait. Pour écouter un passage avant livraison, utilise preview_music.',
     inputSchema: { type: 'object', required: ['project_path'], properties: { ...EXPORT_PROPERTIES, project_path: PROJECT_SCHEMA,
-      cuts: { type: 'array', maxItems: 3, uniqueItems: true, items: { type: 'integer', enum: [15, 30, 60] } },
-    } },
+      format: { ...EXPORT_PROPERTIES.format, default: 'both' },
+      bit_depth: { ...EXPORT_PROPERTIES.bit_depth, default: 24 },
+      sampling_rate: { ...SAMPLING_RATE, default: 48000 },
+      stems: { ...EXPORT_PROPERTIES.stems, description: 'Ajoute des pistes WAV séparées par pupitre. Actif par défaut avec wav ou both.' },
+      cuts: { type: 'array', maxItems: 3, uniqueItems: true, items: { type: 'integer', enum: [15, 30, 60] },
+        description: 'Formats courts supplémentaires, en secondes. Chaque montage commence sur un thème et se termine par une cadence.' },
+    }, ...EXPORT_CONSTRAINTS },
   },
   {
     name: 'preview_music',
-    description: 'Rend en WAV un passage d’un projet enregistré, ou le même passage de plusieurs projets déjà créés. Alignement en sonie et anonymisation facultative des WAV.',
+    title: 'Préécouter un projet musical',
+    description: 'Écoute un passage d’un ou plusieurs projets musicaux déjà enregistrés. Écrit des WAV à sonie alignée dans un nouveau sous-dossier. Utilise compare_music_choices pour générer deux versions d’un même projet, ou play_sound pour écouter un timbre isolé.',
     inputSchema: { type: 'object', properties: { project_path: PROJECT_SCHEMA,
       project_paths: { type: 'array', minItems: 1, maxItems: 3, items: PROJECT_SCHEMA },
       ...REGION_PROPERTIES,
-      blind: { type: 'boolean' }, seed: { type: 'integer', minimum: 0, maximum: 4294967295 }, output_dir: { type: 'string' },
-    } },
+      blind: { type: 'boolean', description: 'Mélange et anonymise les prises. Les identités sont dans le fichier reveal_path.' },
+      seed: SEED_SCHEMA, output_dir: OUTPUT_DIR,
+    }, oneOf: [{ required: ['project_path'] }, { required: ['project_paths'] }], ...REGION_SELECTION },
   },
   {
     name: 'compare_music_choices',
-    description: 'Part d’un seul projet pour générer deux variantes anonymes à sonie alignée selon criterion. accompaniment et breath livrent un comparison_path pour learn_music_preference. build compare deux montées et livre les projets complets et un reveal_path.',
+    title: 'Comparer deux variantes musicales',
+    description: 'Crée deux variantes A/B d’un projet selon un choix d’arrangement. Écrit les extraits anonymes à sonie alignée et les projets dans un nouveau sous-dossier. Passe comparison_path à learn_music_preference après un choix explicite sur accompaniment ou breath. Pour écouter des projets déjà prêts, utilise preview_music.',
     inputSchema: { type: 'object', required: ['project_path', 'criterion'], properties: {
       project_path: PROJECT_SCHEMA, criterion: { type: 'string', enum: MUSIC_COMPARISON_CRITERIA,
         description: 'Teste la présence de l’accompagnement, la respiration mélodique ou le type de montée avant une arrivée.' },
       ...REGION_PROPERTIES, ...BUILD_PROPERTIES,
-      after_bars: { type: 'integer', minimum: 1, maximum: 8, description: 'Mesures après l’arrivée pour le critère build.' },
-      seed: { type: 'integer', minimum: 0, maximum: 4294967295 }, output_dir: { type: 'string' },
-    } },
+      section: { ...SECTION_SELECTOR, description: 'Avec build, indique la section où débute l’arrivée à la place de arrival_bar. Avec accompaniment ou breath, sélectionne la section à écouter à la place de region.' },
+      amount: { ...BUILD_PROPERTIES.amount, description: 'Pour build, intensité de la montée. Utilise une valeur strictement positive, jusqu’à 1 (effet complet).' },
+      after_bars: { type: 'integer', minimum: 1, maximum: 8, description: 'Pour build, mesures à écouter à partir de l’arrivée. Par défaut, jusqu’à 2 mesures disponibles.' },
+      seed: { ...SEED_SCHEMA, description: 'Graine déterminant l’ordre anonyme des prises A et B.' }, output_dir: OUTPUT_DIR,
+    }, if: { properties: { criterion: { const: 'build' } } }, then: { allOf: [
+      { not: { anyOf: [{ required: ['region'] }, { required: ['full'] }, { required: ['max_seconds'] }, { required: ['section', 'arrival_bar'] }] } },
+      { properties: { amount: { exclusiveMinimum: 0 } } },
+    ] }, else: { allOf: [
+      ...REGION_SELECTION.allOf,
+      { not: { anyOf: [{ required: ['arrival_bar'] }, { required: ['before_bars'] }, { required: ['after_bars'] }, { required: ['amount'] }] } },
+    ] } },
   },
   {
     name: 'learn_music_preference',
-    description: 'Enregistre dans un fichier local le choix A ou B exprimé par l’auditeur. draft_music réutilise le profil pour les esquisses suivantes.',
+    title: 'Mémoriser une préférence musicale',
+    description: 'Après un choix explicite de l’auditeur entre A et B, mémorise sa préférence d’accompagnement ou de respiration. Crée ou réécrit le profil local en remplaçant ce choix et en conservant les autres critères. draft_music lit ce profil pour les esquisses suivantes.',
     inputSchema: { type: 'object', required: ['comparison_path', 'chosen'], properties: {
-      comparison_path: { type: 'string' }, chosen: { type: 'string', enum: ['A', 'B'] }, profile_path: PROFILE_PATH,
+      comparison_path: { type: 'string', description: 'Chemin comparison_path renvoyé par compare_music_choices pour accompaniment ou breath. Pour build, la correspondance reveal_path sert à identifier la variante retenue.' },
+      chosen: { type: 'string', enum: ['A', 'B'], description: 'Lettre de la prise choisie explicitement par l’auditeur.' },
+      profile_path: { type: 'string', description: 'Profil local à créer ou mettre à jour. À défaut, utilise le profil local configuré par SoundMCP.' },
     } },
   },
   {
     name: 'analyze_music',
+    title: 'Mesurer un rendu musical',
     description: 'Donne les mesures audio (LUFS, crêtes, saturation et stéréo) d’un WAV ou d’un projet. Pour un projet, vérifie aussi le niveau par pupitre, les sections, les répétitions, le respect du brief et l’historique.',
-    inputSchema: { type: 'object', properties: { project_path: PROJECT_SCHEMA, wav_path: { type: 'string' } } },
+    inputSchema: { type: 'object', properties: { project_path: PROJECT_SCHEMA,
+      wav_path: { type: 'string', description: 'Chemin d’un WAV déjà rendu à mesurer directement.' },
+    }, oneOf: [{ required: ['project_path'] }, { required: ['wav_path'] }] },
   },
   {
     name: 'inspect_score',
-    description: 'Lit les accords, les notes de la partition et leur position jouée. Pour réécrire une mesure, transmets les notes à edit_music dans edits avec le type write_measure. Page les grands résultats avec next_offset.',
+    title: 'Lire la partition',
+    description: 'Consulte les accords et les notes d’un projet sans lancer de rendu. La réponse distingue les temps écrits des positions jouées. Pour paginer, renvoie next_offset dans offset avec le même filtre. Pour réécrire les notes, utilise edit_music avec edits[].type=write_measure.',
     inputSchema: { type: 'object', required: ['project_path'], properties: { project_path: PROJECT_SCHEMA,
-      start_bar: { type: 'integer', minimum: 1 }, bars: { type: 'integer', minimum: 1, maximum: 12 },
-      part: { type: 'string', enum: PARTS }, offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 512 },
+      start_bar: { ...REGION_SCHEMA.properties.start_bar, default: 1 },
+      bars: { type: 'integer', minimum: 1, maximum: 12, description: 'Nombre de mesures demandées. Par défaut, jusqu’à quatre mesures restantes.' },
+      part: { type: 'string', enum: PARTS, description: 'Restreint les notes à un pupitre, par exemple mel ou bass. La réponse conserve les accords de chaque mesure.' },
+      offset: { type: 'integer', minimum: 0, default: 0, description: 'Nombre d’événements à ignorer après filtrage. Reprends la valeur next_offset de la page précédente.' },
+      limit: { type: 'integer', minimum: 1, maximum: 512, default: 160, description: 'Nombre maximal d’événements de notes dans cette page. La liste des mesures reste entière.' },
     } },
   },
   {
     name: 'manage_outputs',
-    description: 'Retrouve les fichiers générés dans un dossier de sortie. list donne les file_id et les chemins. archive libère le chemin d’origine en déplaçant le fichier dans une archive locale. restore le remet en place si le chemin est libre.',
+    title: 'Retrouver et ranger les sorties',
+    description: 'Retrouve les sorties enregistrées dans un dossier. Pour reprendre un morceau, appelle list avec file_type=project et state=active, puis réutilise path comme project_path. archive déplace un fichier dans l’archive locale et restore le remet en place si le chemin est libre.',
     inputSchema: { type: 'object', required: ['action'], properties: {
-      action: { type: 'string', enum: OUTPUT_ACTIONS },
+      action: { type: 'string', enum: OUTPUT_ACTIONS, description: 'list retrouve les sorties, archive déplace un fichier, restore le remet à son chemin d’origine.' },
       output_dir: { type: 'string', description: 'Dossier utilisé lors de la génération, renvoyé dans managed_outputs.' },
       file_id: { type: 'string', description: 'Identifiant du fichier pour archive ou restore.' },
-      offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 },
+      file_type: { type: 'string', enum: ['project'], description: 'Pour list, ne retourne que les projets musicaux éditables enregistrés par SoundMCP.' },
+      state: { type: 'string', enum: OUTPUT_STATES, description: 'Pour list, limite les résultats aux fichiers actifs ou archivés. Par défaut, inclut les deux états.' },
+      offset: { type: 'integer', minimum: 0, description: 'Pour la page suivante, reprends next_offset en conservant le filtre.' },
+      limit: { type: 'integer', minimum: 1, maximum: 100, default: 30, description: 'Nombre maximal de fichiers renvoyés par list.' },
     }, oneOf: [{ properties: { action: { const: 'list' } } },
       { properties: { action: { enum: ['archive', 'restore'] } }, required: ['file_id'] }] },
   },
   {
     name: 'create_music',
-    description: 'Compose un instrumental à partir d’un style et écrit un WAV, un MIDI ou les deux. save_project ajoute une partition éditable dans files. Un export portant le même nom peut être remplacé.',
+    title: 'Exporter un morceau depuis un style',
+    description: 'Compose et exporte directement un instrumental depuis un identifiant style, avec un arrangement facultatif. Active save_project pour conserver le fichier éditable. Un export du même nom peut être remplacé. Pour explorer des arrangements depuis un brief, utilise draft_music.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -493,121 +610,70 @@ const TOOLS = [
         },
       },
       required: ['style'],
+      ...EXPORT_CONSTRAINTS,
     },
   },
   {
     name: 'edit_music',
-    description: 'Crée une copie retouchée d’un projet existant. edits modifie les notes, sections, gains ou montées. mix rééquilibre les pupitres après les retouches. ending_variants propose plusieurs fins.',
+    title: 'Retoucher un projet musical',
+    description: 'Applique des retouches ciblées à un projet enregistré. Exécute edits dans l’ordre, puis applique le mix demandé. Écrit de nouveaux projets et exports à côté du fichier source par défaut. Pour réécrire une mesure, relève ses accords avec inspect_score. Préécoute ensuite la version retenue avec preview_music.',
     inputSchema: {
       type: 'object', required: ['project_path'], properties: {
-        project_path: { type: 'string', description: 'Chemin du fichier .soundmcp.json retourné par create_music ou edit_music.' },
-        edits: { type: 'array', maxItems: 32, items: { type: 'object', required: ['type'], properties: {
-          type: { type: 'string', enum: ['gain', 'mute', 'replace_section', 'write_measure', 'shape_build'] },
-          ...BUILD_PROPERTIES,
-          contour: { type: 'string', enum: [...CONTOURS, 'flat'] },
-          section: SECTION_SELECTOR,
-          part: { type: 'string', enum: PARTS },
-          db: { type: 'number', minimum: -60, maximum: 12 },
-          replacement: { type: 'object', properties: SECTION_PROPERTIES },
-          bar: { type: 'integer', minimum: 1 }, notes: MEASURE_NOTES_SCHEMA, instrument: { type: 'string' },
-        } } },
+        project_path: PROJECT_SCHEMA,
+        edits: { type: 'array', maxItems: 32, description: 'Retouches appliquées dans l’ordre. Par exemple {"type":"gain","section":1,"part":"mel","db":-3}.',
+          items: { type: 'object', required: ['type'], properties: {
+            type: { type: 'string', enum: Object.keys(MUSIC_EDIT_TYPES), description: 'gain ajuste le niveau, mute coupe un pupitre, replace_section régénère une section, write_measure réécrit les notes et shape_build modifie une montée.' },
+            ...BUILD_PROPERTIES,
+            contour: { type: 'string', enum: [...CONTOURS, 'flat'], description: 'Pour shape_build, progressive intensifie l’accompagnement, break crée une rupture, flat retire la montée.' },
+            section: { ...SECTION_SELECTOR, description: 'Section visée par gain, mute ou replace_section. Nom exact ou numéro à partir de 1.' },
+            part: { type: 'string', enum: PARTS, description: 'Pupitre à modifier, par exemple mel ou bass.' },
+            db: { type: 'number', minimum: -60, maximum: 12, description: 'Variation relative de gain en dB. Une valeur négative atténue le pupitre.' },
+            replacement: { type: 'object', properties: SECTION_PROPERTIES, description: 'Paramètres à modifier lors de la régénération, par exemple accords ou instrumentation. La section garde son nombre de mesures.' },
+            bar: { ...REGION_SCHEMA.properties.start_bar, description: 'Numéro global de la mesure à réécrire, à partir de 1.' },
+            notes: MEASURE_NOTES_SCHEMA,
+            instrument: { type: 'string', description: 'Pour write_measure, timbre intégré ou identifiant de patch importé. Sans valeur, reprend l’instrument du pupitre.' },
+          }, oneOf: Object.entries(MUSIC_EDIT_TYPES).map(([type, required]) => ({ properties: { type: { const: type } }, required })) } },
         mix: { type: 'object', additionalProperties: false, description: 'Équilibre les pupitres après les retouches, sur une section ou le projet entier.',
           properties: { section: SECTION_SELECTOR, strength: UNIT } },
-        ending_variants: { type: 'integer', minimum: 1, maximum: 5 },
+        ending_variants: { type: 'integer', minimum: 1, maximum: 5, description: 'Exporte autant de copies avec des cadences différentes sur la dernière section. Chaque copie est un morceau non bouclé.' },
         ...EXPORT_PROPERTIES,
+        format: { ...EXPORT_PROPERTIES.format, default: 'wav' },
+        sampling_rate: { ...SAMPLING_RATE, description: 'Fréquence du WAV en hertz. À défaut, reprend celle du projet.' },
+        bit_depth: { ...EXPORT_PROPERTIES.bit_depth, description: 'Résolution du WAV en bits. À défaut, reprend celle du projet.' },
         ...PATCH_IMPORT,
         ...INTERPRETATION_PROPERTIES,
       },
+      ...EXPORT_CONSTRAINTS,
     },
   },
   {
     name: 'create_sfx',
-    description: 'Écrit un effet sonore ponctuel en WAV 16 bits. Choisis kind dans la catégorie sfx de list_catalog. Avec le même kind et le même seed, le fichier portant ce nom peut être remplacé.',
+    title: 'Créer ou reprendre un effet sonore',
+    description: 'Rend un effet ponctuel en WAV 16 bits. Choisis kind dans list_catalog(category=sfx) pour créer un effet. Donne source_file_id pour reprendre ses réglages et écrire une variante dans un nouveau sous-dossier. En mode kind, une sortie de même type et graine peut être remplacée.',
     inputSchema: {
       type: 'object',
-      properties: {
-        kind: {
-          type: 'string',
-          enum: SFX_IDS,
-          description: 'Type d\'effet sonore.',
-        },
-        seed: {
-          type: 'integer',
-          minimum: 0,
-          description: 'Graine : même seed = même SFX (utile pour des variantes cohérentes).',
-        },
-        volume: {
-          type: 'number',
-          minimum: 0.05,
-          maximum: 1,
-          default: 1,
-          description: 'Volume relatif (0.05 à 1).',
-        },
-        sampling_rate: {
-          type: 'integer',
-          enum: [22050, 44100, 48000],
-          default: 44100,
-          description: 'Fréquence d\'échantillonnage du WAV en Hz (22050 = taille moitié, ok pour les UI/retro).',
-        },
-        mono: {
-          type: 'boolean',
-          default: false,
-          description: 'Exporte en mono (taille moitié).',
-        },
-        output_dir: {
-          type: 'string',
-          description: 'Dossier de sortie. Par défaut : <projet>/output.',
-        },
+      properties: { ...PROCEDURAL_AUDIO_PROPERTIES,
+        kind: { type: 'string', enum: SFX_IDS, description: 'Identifiant d’effet issu de list_catalog(category=sfx) pour une création.' },
       },
-      required: ['kind'],
+      oneOf: PROCEDURAL_AUDIO_MODES,
     },
   },
   {
     name: 'create_ambience',
-    description: 'Écrit une ambiance continue en WAV 16 bits avec raccord de boucle. Choisis kind dans la catégorie ambiences de list_catalog. Avec le même kind et le même seed, le fichier portant ce nom peut être remplacé.',
+    title: 'Créer ou reprendre une ambiance',
+    description: 'Rend une ambiance continue en WAV 16 bits avec raccord de boucle. Choisis kind dans list_catalog(category=ambiences) pour créer une ambiance. Donne source_file_id pour reprendre ses réglages et écrire une variante dans un nouveau sous-dossier. En mode kind, une sortie de même type et graine peut être remplacée.',
     inputSchema: {
       type: 'object',
-      properties: {
-        kind: {
-          type: 'string',
-          enum: AMBIENCE_IDS,
-          description: 'Type d\'ambiance.',
-        },
+      properties: { ...PROCEDURAL_AUDIO_PROPERTIES,
+        kind: { type: 'string', enum: AMBIENCE_IDS, description: 'Identifiant d’ambiance issu de list_catalog(category=ambiences) pour une création.' },
         duration_seconds: {
           type: 'number',
           minimum: 5,
           maximum: 600,
-          description: 'Durée de la boucle en secondes (5 à 600). Par défaut : 45-60 s selon l\'ambiance. Une boucle plus longue = événements moins répétitifs.',
-        },
-        volume: {
-          type: 'number',
-          minimum: 0.05,
-          maximum: 1,
-          default: 1,
-          description: 'Volume relatif (0.05 à 1).',
-        },
-        seed: {
-          type: 'integer',
-          minimum: 0,
-          description: 'Graine : même seed = même ambiance.',
-        },
-        sampling_rate: {
-          type: 'integer',
-          enum: [22050, 44100, 48000],
-          default: 44100,
-          description: 'Fréquence d\'échantillonnage du WAV en Hz. 22050 recommandé pour les fonds d\'ambiance (taille moitié, qualité largement suffisante).',
-        },
-        mono: {
-          type: 'boolean',
-          default: false,
-          description: 'Exporte en mono (taille moitié).',
-        },
-        output_dir: {
-          type: 'string',
-          description: 'Dossier de sortie. Par défaut : <projet>/output.',
+          description: 'Durée de la boucle en secondes. À défaut, reprend la durée source pour une variante ou celle de l’ambiance choisie.',
         },
       },
-      required: ['kind'],
+      oneOf: PROCEDURAL_AUDIO_MODES,
     },
   },
 ].map((tool) => ({ ...tool, ...toolContract(tool.name, OUTPUT_TOOLS.has(tool.name)) }));
@@ -647,7 +713,7 @@ function listStylesText() {
   lines.push('- Tonalité : accepte noms EN et FR — "A minor", "la mineur", "F# dorien", "C majeur", "F# mixolydien"…');
   lines.push('- Instrumental uniquement. Pour la production, utilise sampling_rate: 48000 et bit_depth: 24. stems: true ajoute les pupitres avant mastering.');
   lines.push('- MIDI : instruments séparés et marqueurs de sections. arrangement permet de choisir les accords, les pupitres et le motif.');
-  lines.push('- Composition guidée : draft_music accepte une phrase et retourne les projets de trois esquisses. finish_music livre le projet choisi.');
+  lines.push('- Composition guidée : draft_music explore un brief ou compose une collection à partir de trois à six briefs. finish_music livre le projet choisi.');
   lines.push('- Timbres : la catégorie sounds de list_catalog présente la palette. Passe les identifiants à sounds dans play_sound.');
   lines.push('- Synthèse : design_sound invente un son à partir d’un brief ou d’un patch. Importe le fichier patch_path dans patch_paths et affecte son identifiant dans patch_roles.');
   lines.push('- Studio : piano, contrebasse, batterie, cordes, bois, cor, guitares, harpe, vibraphone et violoncelles enregistrés.');
@@ -718,10 +784,13 @@ function exportTrack(song, { format, bits, stems }, outputDir, base) {
   return { files, ...(audioInfo ? { audio: audioInfo } : {}) };
 }
 
-function exportMusic(song, outputs, outputDir, base, args) {
-  const editions = getEditions(song, args.editions, args.loop_region);
+function exportMusic(song, outputs, outputDir, base, args, editions = getEditions(song, args.editions, args.loop_region)) {
   const exported = exportTrack(song, outputs, outputDir, base);
-  if (args.save_project) exported.files.push(writeProject(path.join(outputDir, `${base}.soundmcp.json`), song, outputs.bits));
+  if (args.save_project) {
+    const project = writeProject(path.join(outputDir, `${base}.soundmcp.json`), song, outputs.bits);
+    exported.files.push(project);
+    exported.project_path = project.path;
+  }
   if (editions.length) {
     const manifest = editions.map(({ id, region, song: edition }) => {
       const { files, audio } = exportTrack(edition, { ...outputs, stems: false }, outputDir, `${base}-${id}`);
@@ -964,35 +1033,52 @@ function previewSounds(args) {
 }
 
 function draftMusic(args) {
+  const collection = args.briefs !== undefined;
+  if (collection && (args.brief !== undefined || args.variants !== undefined)) throw new Error('briefs donne un morceau par entrée. Omet brief et variants.');
+  if (collection && (!Array.isArray(args.briefs) || args.briefs.length < 3 || args.briefs.length > 6)) {
+    throw new Error('briefs attend de trois à six briefs, un par morceau.');
+  }
   const palette = args.palette ?? 'studio';
   if (!PALETTES.includes(palette)) throw new Error('palette attend studio ou synth.');
-  const intent = interpretBrief(args.brief, args);
+  const intents = Array.from(collection ? args.briefs : [args.brief], (brief, index) => {
+    try {
+      return interpretBrief(brief, args);
+    } catch (error) {
+      if (!collection) throw error;
+      throw new Error(`Morceau ${index + 1} : ${error.message}`);
+    }
+  });
   if (args.build_contour !== undefined && !CONTOURS.includes(args.build_contour)) {
     throw new Error('build_contour attend progressive ou break.');
   }
   const choices = preferencesFor(args, true);
-  const plan = { ...intent, palette, autoMix: args.auto_mix ?? intent.phrasing === 'lyrical',
+  const plans = intents.map((intent) => ({ ...intent, palette, autoMix: args.auto_mix ?? intent.phrasing === 'lyrical',
     ...(args.build_contour ? { buildContour: args.build_contour } : {}),
-    ...(Object.keys(choices).length ? { preferences: choices } : {}) };
+    ...(Object.keys(choices).length ? { preferences: choices } : {}) }));
   const patches = importPatches(args.patch_paths);
   const calibrations = loadCalibrations(args.calibration_paths);
   const seed = musicSeed(args.seed);
   const count = args.variants ?? 3;
   if (!Number.isInteger(count) || count < 1 || count > 3) throw new Error('variants attend de 1 à 3 esquisses.');
-  const title = args.title ? String(args.title) : 'Esquisses instrumentales';
-  const drafts = Array.from({ length: count }, (_, i) => {
-    const arranged = withInterpretation(assignPatchRoles(arrange(plan, seed, i, `${title} — ${i + 1}`), args.patch_roles, patches), args);
+  const title = args.title ? String(args.title) : collection ? 'Collection instrumentale' : 'Esquisses instrumentales';
+  const jobs = collection
+    ? plans.map((plan, index) => ({ plan, seed: hash32(seed, index + 1), variant: 0,
+      title: `${index + 1} · ${Array.from(plan.brief.replace(/\s+/g, ' ')).slice(0, 65).join('')}` }))
+    : Array.from({ length: count }, (_, variant) => ({ plan: plans[0], seed, variant, title: `${title} — ${variant + 1}` }));
+  const drafts = jobs.map((job) => {
+    const { plan, seed: draftSeed, variant } = job;
+    const arranged = withInterpretation(assignPatchRoles(arrange(plan, draftSeed, variant, job.title), args.patch_roles, patches), args);
     const prepared = plan.buildContour && arranged.bars > 1
       ? shapeBuild(arranged, { arrival_bar: arrivalBar(arranged), contour: plan.buildContour }) : arranged;
     const { song, mix } = production(prepared, args, calibrations, choices, plan.autoMix);
     const fragment = excerpt(song);
     const audio = renderSong(fragment.song);
-    return { song, fragment, audio, mix };
+    return { song, fragment, audio, mix, plan, draftSeed };
   });
   const levels = matchLevels(drafts.map((draft) => draft.audio));
   const outputDir = newFolder(outputDirectory(args.output_dir), title);
-  const candidates = drafts.map(({ song, fragment, audio, mix }, i) => {
-    const base = `esquisse-${i + 1}`;
+  const candidates = drafts.map(({ song, fragment, audio, mix, plan, draftSeed }, i) => {
+    const base = `${collection ? 'morceau' : 'esquisse'}-${i + 1}`;
     const previewPath = path.join(outputDir, `${base}.wav`);
     const projectPath = path.join(outputDir, `${base}.soundmcp.json`);
     writeWav(previewPath, audio.L, audio.R, audio.sr, audio.mono, 24);
@@ -1004,9 +1090,20 @@ function draftMusic(args) {
     if (plan.loop && Math.abs(song.meta.durationSeconds - plan.duration) > 0.05) warnings.push('Durée musicale arrondie à une mesure complète pour la boucle.');
     if (!plan.loop && song.targetSeconds > plan.duration + 0.05) warnings.push('Une mesure entière dépasse la durée demandée à ce tempo.');
     return { id: i + 1, project_path: projectPath, preview_path: previewPath, music: song.meta,
+      ...(collection ? { brief: plan.brief, seed: draftSeed, title: song.meta.title } : {}),
       preview: { ...fragment.region, ...levels[i] }, ...(mix.length ? { mix } : {}), warnings };
   });
   const preferred = candidates.reduce((a, b) => b.warnings.length < a.warnings.length ? b : a);
+  if (collection) {
+    const shared_options = Object.fromEntries(Object.keys(DRAFT_MUSIC_OPTIONS).filter((name) => args[name] !== undefined)
+      .map((name) => [name, args[name]]));
+    const result = { mode: 'collection', title, seed, shared_options, candidates, firstToPreview: preferred.id };
+    result.report_path = jsonFile(outputDir, 'collection.json', result);
+    return resultText(`${title} · ${candidates.length} morceaux\n` + candidates.map((candidate) =>
+      `- ${candidate.title} · ${candidate.music.style} · ${candidate.music.tempo} BPM\n  Préécoute : ${candidate.preview_path}\n  Projet : ${candidate.project_path}`).join('\n') +
+      '\nPour livrer un morceau, passe son project_path à finish_music.', result);
+  }
+  const [plan] = plans;
   const result = { seed, plan, candidates, firstToPreview: preferred.id };
   result.report_path = jsonFile(outputDir, 'esquisses.json', result);
   return resultText(`${count} esquisse(s) instrumentale(s), style ${plan.style}, ${plan.tempo} BPM.\n` +
@@ -1188,10 +1285,11 @@ function finishMusic(args) {
   if (!Array.isArray(requested) || new Set(requested).size !== requested.length || requested.some((cut) => ![15, 30, 60].includes(cut))) {
     throw new Error('cuts attend une liste sans doublon parmi 15, 30 et 60.');
   }
+  const editions = getEditions(song, args.editions, args.loop_region);
   const cuts = requested.map((seconds) => cutMusic(song, seconds));
   const outputDir = newFolder(outputDirectory(args.output_dir, path.dirname(project.source)), `${title}-master`);
   const base = slug(title);
-  const result = exportMusic(song, outputs, outputDir, base, { ...opts, save_project: true });
+  const result = exportMusic(song, outputs, outputDir, base, { ...opts, save_project: true }, editions);
   if (cuts.length) {
     result.cuts = cuts.map((cut) => {
       const seconds = cut.meta.cutSeconds;
@@ -1203,6 +1301,37 @@ function finishMusic(args) {
   }
   result.report_path = jsonFile(outputDir, 'livraison.json', result);
   return resultText(musicSummaryText(result.meta, result.files, result.audio), result);
+}
+
+function proceduralAudio(name, args) {
+  const isAmbience = name === 'create_ambience';
+  const catalog = isAmbience ? AMBIENCE_KINDS : SFX_KINDS;
+  const generator = isAmbience ? createAmbience : createSfx;
+  const sourceId = args.source_file_id;
+  if (sourceId !== undefined && args.kind !== undefined) throw new Error('Indique kind ou source_file_id.');
+  const root = outputDirectory(args.output_dir ?? args.source_output_dir);
+  const source = sourceId === undefined ? {} : outputRenderSettings(outputDirectory(args.source_output_dir, root), sourceId, name);
+  const kind = source.kind ?? String(args.kind || '').trim();
+  if (!Object.hasOwn(catalog, kind)) {
+    throw new Error(`Identifiant inconnu : ${kind}. Consulte ${isAmbience ? 'ambiences' : 'sfx'} dans list_catalog.`);
+  }
+  const seed = musicSeed(args.seed ?? source.seed);
+  const volume = Math.max(0.05, Math.min(1, args.volume ?? source.volume ?? 1));
+  const tech = techOptions({ sampling_rate: args.sampling_rate ?? source.sampling_rate, mono: args.mono ?? source.mono });
+  const durationSec = isAmbience ? Math.max(5, Math.min(600,
+    args.duration_seconds ?? source.duration_seconds ?? catalog[kind].defaultSec ?? 45)) : undefined;
+  if (!Number.isFinite(volume) || (isAmbience && !Number.isFinite(durationSec))) throw new Error('Volume ou durée de rendu invalide.');
+  const outputDir = sourceId === undefined ? root : newFolder(root, `${kind}-variante`);
+  const render = generator(kind, { seed, volume, durationSec, outputDir, ...tech });
+  const render_settings = { kind, seed, volume, sampling_rate: tech.sr, mono: tech.mono,
+    ...(isAmbience ? { duration_seconds: durationSec } : {}) };
+  const text = [
+    `${isAmbience ? '🌫️ Ambiance' : '🔊 SFX'} « ${kind} » · ${render.desc}`,
+    `- Fichier : ${render.path} (${fmtBytes(render.bytes)})`,
+    `- ${isAmbience ? 'Boucle' : 'Durée'} : ${render.durationSeconds} s`,
+    `- Seed : ${seed}`,
+  ].join('\n');
+  return resultText(text, { ...render, render_settings });
 }
 
 /**
@@ -1315,58 +1444,7 @@ function runTool(name, args) {
       structuredContent: { versions: results, ...(mixing ? { mix: mixing.sections } : {}) } };
   }
 
-  if (name === 'create_sfx') {
-    const kind = String(args.kind || '').trim();
-    if (!SFX_KINDS[kind]) {
-      throw new Error(`SFX inconnu: "${kind}". Disponibles: ${SFX_IDS.join(', ')}.`);
-    }
-    const outputDir = args.output_dir ? path.resolve(String(args.output_dir)) : DEFAULT_OUTPUT_DIR;
-    const sfx = createSfx(kind, {
-      seed: musicSeed(args.seed),
-      volume: args.volume,
-      outputDir,
-      ...techOptions(args),
-    });
-    const text = [
-      `🔊 SFX « ${kind} » créé : ${sfx.desc}`,
-      '',
-      `- Fichier : ${sfx.path} (${fmtBytes(sfx.bytes)})`,
-      `- Durée : ${sfx.durationSeconds} s`,
-      `- Seed : ${sfx.seed} — même seed = même effet (variantes cohérentes possibles).`,
-    ].join('\n');
-    return {
-      content: [{ type: 'text', text }],
-      structuredContent: sfx,
-    };
-  }
-
-  if (name === 'create_ambience') {
-    const kind = String(args.kind || '').trim();
-    if (!AMBIENCE_KINDS[kind]) {
-      throw new Error(`Ambiance inconnue: "${kind}". Disponibles: ${AMBIENCE_IDS.join(', ')}.`);
-    }
-    const outputDir = args.output_dir ? path.resolve(String(args.output_dir)) : DEFAULT_OUTPUT_DIR;
-    const amb = createAmbience(kind, {
-      seed: musicSeed(args.seed),
-      durationSec: args.duration_seconds,
-      volume: args.volume,
-      outputDir,
-      ...techOptions(args),
-    });
-    const text = [
-      `🌫️ Ambiance « ${kind} » créée : ${amb.desc}`,
-      '',
-      `- Fichier : ${amb.path} (${fmtBytes(amb.bytes)})`,
-      `- Boucle : ${amb.durationSeconds} s, sans raccord audible (crossfade intégré)`,
-      `- Seed : ${amb.seed} — même seed = même ambiance.`,
-      '',
-      'Astuce : joue-la en fond en continu (loop) ; une ambiance plus longue a des événements moins répétitifs.',
-    ].join('\n');
-    return {
-      content: [{ type: 'text', text }],
-      structuredContent: amb,
-    };
-  }
+  if (name === 'create_sfx' || name === 'create_ambience') return proceduralAudio(name, args);
 
   throw new Error(`Outil inconnu: ${name}. Disponibles: ${TOOLS.map((t) => t.name).join(', ')}.`);
 }
@@ -1381,8 +1459,9 @@ async function callTool(name, args = {}) {
     ...files.flatMap(({ path, project_path }) => [path, project_path]),
     ...takes.flatMap(({ preview_path, project_path, patch_path }) => [preview_path, project_path, patch_path])].filter(Boolean);
   const fallback = PROJECT_OUTPUT_TOOLS.has(name) ? path.dirname(path.resolve(args.project_path)) : DEFAULT_OUTPUT_DIR;
+  const outputDir = outputDirectory(args.output_dir ?? (data.render_settings ? args.source_output_dir : undefined), fallback);
   try {
-    const tracked = recordOutputs(outputDirectory(args.output_dir, fallback), name, paths);
+    const tracked = recordOutputs(outputDir, name, paths, data.render_settings);
     if (tracked) data.managed_outputs = tracked;
   } catch (error) {
     data.output_management_warning = error.message;

@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -15,6 +16,60 @@ const { callTool } = require('../src/tools');
 const { reportOverlaps } = require('../src/score-diagnostics');
 const { chordFromSymbol } = require('../src/theory');
 const { applyBuilds, validateBuilds } = require('../src/build-shaping');
+
+async function verifyCollection(output_dir) {
+  const briefs = [
+    'Village folk en do majeur, 84 BPM, 6/8',
+    'Forêt nocturne en ré mineur, 66 BPM, sans batterie',
+    'Poursuite rock en mi mineur, 148 BPM, énergie intense',
+    'Refuge lofi en fa majeur, 73 BPM',
+    'Générique jazz en sol majeur, 112 BPM, 3/4',
+    'Ruines du donjon en la mineur, 57 BPM',
+  ];
+  const options = { duration_seconds: 8, instruments: ['piano'], palette: 'synth', use_preferences: false };
+  const parent = fs.readdirSync(path.dirname(output_dir));
+  await assert.rejects(callTool('draft_music', { briefs: briefs.slice(0, 2), output_dir }), /trois à six/);
+  await assert.rejects(callTool('draft_music', { briefs, brief: briefs[0], output_dir }), /Omet brief et variants/);
+  await assert.rejects(callTool('draft_music', { briefs, variants: 2, output_dir }), /Omet brief et variants/);
+  await assert.rejects(callTool('draft_music', { briefs: [...briefs.slice(0, 2), ' '], output_dir }), /Morceau 3/);
+  assert.deepEqual(fs.readdirSync(path.dirname(output_dir)), parent);
+
+  const { structuredContent: collection } = await callTool('draft_music', { ...options, briefs, output_dir, seed: 0, title: 'Traversée' });
+  const { candidates } = collection;
+  assert.equal(collection.mode, 'collection');
+  assert.deepEqual(collection.shared_options, options);
+  assert.deepEqual(candidates.map(({ brief }) => brief), briefs);
+  assert.deepEqual(candidates.map(({ id }) => id), [1, 2, 3, 4, 5, 6]);
+  assert.equal(new Set(candidates.map(({ seed }) => seed)).size, 6);
+  assert.equal(new Set(candidates.map(({ music }) => music.style)).size, 6);
+  assert.equal(new Set(candidates.map(({ music }) => music.tempo)).size, 6);
+  assert(candidates.every(({ music }) => music.instruments.includes('piano')));
+  assert.equal(collection.managed_outputs.files.length, 13);
+  const manifest = JSON.parse(fs.readFileSync(collection.report_path, 'utf8'));
+  assert.deepEqual(manifest.candidates.map(({ project_path }) => project_path), candidates.map(({ project_path }) => project_path));
+
+  const fingerprint = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  const previews = candidates.map(({ preview_path }) => fingerprint(preview_path));
+  const projects = candidates.map(({ project_path }) => fingerprint(project_path));
+  assert.equal(new Set(previews).size, 6);
+  const track = candidates[2];
+  const original = readProject(track.project_path).song;
+  const replayArgs = { ...collection.shared_options, variants: 1, seed: track.seed, output_dir };
+  const { structuredContent: replay } = await callTool('draft_music', { ...replayArgs, brief: track.brief });
+  assert.deepEqual(readProject(replay.candidates[0].project_path).song.events, original.events);
+  const { structuredContent: revision } = await callTool('draft_music', { ...replayArgs, brief: `${track.brief}, sans batterie` });
+  const revised = revision.candidates[0];
+  assert(original.meta.instruments.includes('drum'));
+  assert(!revised.music.instruments.includes('drum'));
+  for (const project_path of [candidates[1].project_path, revised.project_path]) {
+    const { structuredContent: final } = await callTool('finish_music', { project_path, output_dir,
+      format: 'both', sampling_rate: 22050, stems: false });
+    assert(final.files.some(({ format, path: file }) => format === 'wav' && fs.existsSync(file)));
+    assert(final.files.some(({ format, path: file }) => format === 'midi' && fs.existsSync(file)));
+  }
+  assert.deepEqual(candidates.map(({ preview_path }) => fingerprint(preview_path)), previews);
+  assert.deepEqual(candidates.map(({ project_path }) => fingerprint(project_path)), projects);
+}
 
 async function main() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'soundmcp-workflow-'));
@@ -233,6 +288,7 @@ async function main() {
     editions: ['loop', 'calm', 'intense', 'transition'], cuts: [15], stems: true });
   assert.equal(final.audio.durationSeconds, 18);
   assert.equal(final.audio.bits, 24);
+  assert.equal(final.project_path, final.files.find((file) => file.format === 'project').path);
   assert(final.files.some((file) => file.format === 'midi'));
   assert(final.files.some((file) => file.stem === 'mel'));
   assert.equal(new Set(final.editions.map((edition) => edition.samples)).size, 1);
@@ -251,11 +307,24 @@ async function main() {
   assert.deepEqual(technical.briefCheck.missingInstruments, []);
   assert.equal(technical.history[0].action, 'brief');
 
+  const priorOutputs = fs.readdirSync(dir);
+  await assert.rejects(callTool('finish_music', { project_path: projects[0], output_dir: dir, loop_region: { start_bar: 1 } }), /editions attend/);
+  assert.deepEqual(fs.readdirSync(dir), priorOutputs);
+
+  const { structuredContent: listing } = await callTool('manage_outputs', { action: 'list', file_type: 'project', output_dir: dir });
+  assert(listing.files.every((file) => file.path.endsWith('.soundmcp.json')));
+  assert(listing.files.some((file) => file.path === final.project_path));
+  const { structuredContent: inspected } = await callTool('inspect_score', { project_path: final.project_path, limit: 1 });
+  assert.equal(inspected.next_offset, 1);
+  const { structuredContent: revised } = await callTool('edit_music', { project_path: final.project_path, format: 'midi', output_dir: dir });
+  assert.equal(revised.versions[0].project_path, revised.versions[0].files.find((file) => file.format === 'project').path);
+
   const testWav = path.join(dir, 'saturation.wav');
   const overload = new Float32Array(8820).fill(1.1);
   writeWav(testWav, overload, undefined, 22050, true, 32);
   const saturation = (await callTool('analyze_music', { wav_path: testWav })).structuredContent;
   assert.equal(saturation.clippedFrames, overload.length);
+  await verifyCollection(path.join(dir, 'collection'));
   console.log('Atelier : brief FR/EN, trois prises, mesure et tempo variables, partition éditable, préécoute, analyse, master et éditions vérifiés.');
 }
 

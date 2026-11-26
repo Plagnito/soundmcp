@@ -122,6 +122,8 @@ async function main() {
   assert.deepEqual(fs.readFileSync(archived.archive_path), bytes);
   assert.equal((await manage('archive', { file_id })).state, 'archived');
   assert.equal((await manage('list')).files[0].state, 'archived');
+  assert.deepEqual((await manage('list', { state: 'active' })).files, []);
+  assert.equal((await manage('list', { state: 'archived' })).files[0].file_id, file_id);
   fs.writeFileSync(output, 'Fichier occupant le chemin d’origine');
   await assert.rejects(manage('restore', { file_id }), /autre fichier/);
   assert.equal(fs.readFileSync(output, 'utf8'), 'Fichier occupant le chemin d’origine');
@@ -130,6 +132,32 @@ async function main() {
   assert.deepEqual(fs.readFileSync(output), bytes);
   assert.equal((await manage('restore', { file_id })).state, 'active');
   await assert.rejects(manage('archive', { file_id: '../personnel.wav' }), /file_id/);
+
+  const { structuredContent: quieter } = await callTool('create_sfx', { source_file_id: file_id, output_dir, volume: 0.35 });
+  assert.equal(quieter.seed, effect.seed);
+  assert.equal(quieter.render_settings.volume, 0.35);
+  assert.notEqual(quieter.path, effect.path);
+  assert.deepEqual(fs.readFileSync(effect.path), bytes);
+  assert.notDeepEqual(fs.readFileSync(quieter.path), bytes);
+  await assert.rejects(callTool('create_ambience', { source_file_id: file_id, output_dir }), /réglages réutilisables/);
+
+  const { structuredContent: rain } = await callTool('create_ambience', {
+    kind: 'rain', seed: 0, duration_seconds: 8, volume: 0.65, mono: true, sampling_rate: 22050, output_dir,
+  });
+  const rainId = rain.managed_outputs.files[0].file_id;
+  const rainBytes = fs.readFileSync(rain.path);
+  const { structuredContent: shorter } = await callTool('create_ambience', {
+    source_file_id: rainId, source_output_dir: output_dir, duration_seconds: 5,
+  });
+  assert.equal(shorter.managed_outputs.output_dir, output_dir);
+  assert.deepEqual(shorter.render_settings, { ...rain.render_settings, duration_seconds: 5 });
+  assert.deepEqual(fs.readFileSync(rain.path), rainBytes);
+  const wav = readWavInfo(shorter.path);
+  assert.equal(wav.channels, 1);
+  assert.equal(wav.duration, 5);
+  await manage('archive', { file_id: rainId });
+  const { structuredContent: repeated } = await callTool('create_ambience', { source_file_id: rainId, output_dir });
+  assert.deepEqual(fs.readFileSync(repeated.path), rainBytes);
   console.log('Design sonore : catalogue, vrais signaux de guitare, contrastes de section, stem de textures et nuancier vérifiés.');
 }
 

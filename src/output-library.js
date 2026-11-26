@@ -6,6 +6,7 @@ const { randomUUID } = require('node:crypto');
 
 const RECORD_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const ACTIONS = ['list', 'archive', 'restore'];
+const STATES = ['active', 'archived'];
 
 function lstat(file) {
   try {
@@ -49,7 +50,7 @@ function fingerprint(file) {
   return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}`;
 }
 
-function recordOutputs(outputDir, tool, files) {
+function recordOutputs(outputDir, tool, files, renderSettings) {
   const store = library(outputDir, true);
   const entries = [...new Set(files)].map((file) => {
     const relative = path.relative(outputDir, file);
@@ -58,7 +59,7 @@ function recordOutputs(outputDir, tool, files) {
   if (!entries.length) return undefined;
   const id = randomUUID();
   const created_at = new Date().toISOString();
-  const record = { tool, created_at, entries };
+  const record = { tool, created_at, entries, ...(renderSettings ? { render_settings: renderSettings } : {}) };
   const temporary = path.join(store.base, `${id}.tmp`);
   try {
     fs.writeFileSync(temporary, JSON.stringify(record), { flag: 'wx' });
@@ -112,19 +113,24 @@ function moveToFreePath(source, destination) {
   }
 }
 
-function listOutputs(outputDir, store, { offset = 0, limit = 30 } = {}) {
+function listOutputs(outputDir, store, { file_type, state, offset = 0, limit = 30 } = {}) {
   if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) {
     throw new Error('offset doit être positif ou nul et limit compris entre 1 et 100.');
   }
+  if (file_type !== undefined && file_type !== 'project') throw new Error('file_type attend project.');
+  if (state !== undefined && !STATES.includes(state)) throw new Error('state attend active ou archived.');
   const files = [];
   for (const name of store ? fs.readdirSync(store.base) : []) {
     if (!name.endsWith('.json') || !RECORD_ID.test(name.slice(0, -5))) continue;
     const recordId = name.slice(0, -5);
     const record = readRecord(store, recordId);
     for (const [index, entry] of record.entries.entries()) {
+      if (file_type === 'project' && !entry.relative.endsWith('.soundmcp.json')) continue;
       const id = `${recordId}:${index}`;
       const { original, archived, active, saved } = locate(store, id, entry);
-      if (active || saved) files.push({ file_id: id, path: original, state: active ? 'active' : 'archived', tool: record.tool,
+      if (!active && !saved) continue;
+      const currentState = active ? 'active' : 'archived';
+      if (state === undefined || state === currentState) files.push({ file_id: id, path: original, state: currentState, tool: record.tool,
         created_at: record.created_at, ...(saved && !active ? { archive_path: archived } : {}) });
     }
   }
@@ -133,16 +139,30 @@ function listOutputs(outputDir, store, { offset = 0, limit = 30 } = {}) {
   return { output_dir: outputDir, files: page, total: files.length, next_offset: offset + page.length < files.length ? offset + page.length : null };
 }
 
+function registeredOutput(store, id) {
+  const [recordId, index, rest] = typeof id === 'string' ? id.split(':') : [];
+  if (!store || !RECORD_ID.test(recordId ?? '') || !/^\d+$/.test(index ?? '') || rest !== undefined) throw new Error('Utilise un file_id renvoyé par manage_outputs dans le même dossier.');
+  const record = readRecord(store, recordId);
+  const entry = record.entries[Number(index)];
+  if (!entry) throw new Error('Sortie inconnue dans ce dossier.');
+  const canonicalId = `${recordId}:${Number(index)}`;
+  return { record, entry, canonicalId };
+}
+
+function outputRenderSettings(outputDir, id, tool) {
+  const { record } = registeredOutput(library(outputDir), id);
+  if (record.tool !== tool || !record.render_settings) {
+    throw new Error(`Ce fichier ne contient pas de réglages réutilisables avec ${tool}. Indique kind pour créer un nouveau rendu.`);
+  }
+  return record.render_settings;
+}
+
 function manageOutputs(outputDir, args) {
   const { action, file_id: id } = args;
   if (!ACTIONS.includes(action)) throw new Error('action attend list, archive ou restore.');
   const store = library(outputDir);
   if (action === 'list') return listOutputs(outputDir, store, args);
-  const [recordId, index, rest] = typeof id === 'string' ? id.split(':') : [];
-  if (!store || !RECORD_ID.test(recordId ?? '') || !/^\d+$/.test(index ?? '') || rest !== undefined) throw new Error('Utilise un file_id renvoyé par manage_outputs dans le même dossier.');
-  const entry = readRecord(store, recordId).entries[Number(index)];
-  if (!entry) throw new Error('Sortie inconnue dans ce dossier.');
-  const canonicalId = `${recordId}:${Number(index)}`;
+  const { entry, canonicalId } = registeredOutput(store, id);
   const lock = path.join(store.base, `${canonicalId.replace(':', '-')}.lock`);
   try {
     fs.mkdirSync(lock);
@@ -171,4 +191,4 @@ function manageOutputs(outputDir, args) {
   }
 }
 
-module.exports = { ACTIONS, recordOutputs, manageOutputs };
+module.exports = { ACTIONS, STATES, recordOutputs, outputRenderSettings, manageOutputs };

@@ -1,3 +1,12 @@
+# SoundMCP 2.1.0
+
+- `draft_music` accepte `briefs` pour composer trois à six morceaux distincts en un appel. La collection regroupe les préécoutes, les projets éditables et les réglages utiles pour reprendre chaque morceau séparément.
+- `create_sfx` et `create_ambience` reprennent un rendu enregistré à partir de son `file_id`. Chaque variante hérite des réglages de la source et produit un nouveau WAV. Les rendus 2.1.0 enregistrent les réglages nécessaires à cette reprise.
+- `manage_outputs` filtre les projets musicaux éditables et leur état. `create_music` avec `save_project`, `edit_music` et `finish_music` renvoient le chemin du projet directement dans `project_path`.
+- Les 18 outils ont un titre explicite. Les schémas précisent les paramètres et les combinaisons valides pour la synthèse, les comparaisons, les retouches et les exports.
+
+---
+
 # SoundMCP 2.0.0
 
 SoundMCP compose des instrumentaux, des effets sonores et des ambiances en local. Le catalogue MCP passe de 21 à 18 outils et les nouvelles sorties peuvent être retrouvées, archivées et restaurées.
