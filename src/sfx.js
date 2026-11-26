@@ -488,7 +488,7 @@ const SFX_IDS = Object.keys(SFX_KINDS);
 function createSfx(kind, opts = {}) {
   const preset = PRESETS[kind];
   if (!preset) throw new Error(`SFX inconnu: ${kind}. Disponibles: ${SFX_IDS.join(', ')}`);
-  const seed = (opts.seed >>> 0) || randomSeed();
+  const seed = opts.seed == null ? randomSeed() : opts.seed >>> 0;
   const rng = makeRng(seed);
   const sr = opts.sr || 44100;
   const vol = clamp(opts.volume ?? 1, 0.05, 1);

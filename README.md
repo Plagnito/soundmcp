@@ -179,6 +179,8 @@ Pour utiliser le son dans `draft_music`, `create_music` ou `edit_music`, passez 
 
 Les intégrations peuvent encore appeler directement `list_styles`, `list_sounds`, `preview_sounds`, `compare_builds` et `mix_music`. Le catalogue `tools/list` présente leurs fonctionnalités dans `list_catalog`, `play_sound`, `compare_music_choices` et `edit_music`.
 
+Avec MCP `2025-06-18`, `tools/list` expose les schémas de sortie et les annotations sur les effets de chaque outil. Les sessions qui négocient `2024-11-05` ou `2025-03-26` reçoivent aussi le résultat structuré sous forme de JSON dans un bloc texte, après le résumé habituel.
+
 ```json
 {
   "patch_path": "output/verre-magnetique.soundmcp-patch.json",

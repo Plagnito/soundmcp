@@ -38,6 +38,7 @@ const { mixSong } = require('./automatic-mix');
 const { CONTOURS, MAX_BEFORE, buildWindow, shapeBuild } = require('./build-shaping');
 const { CHOICES, PREFERENCES, readPreferences, applyPreference, withPreferences, choiceManifest, rememberChoice } = require('./music-preferences');
 const { ACTIONS: OUTPUT_ACTIONS, recordOutputs, manageOutputs } = require('./output-library');
+const { toolContract } = require('./tool-contracts');
 
 const DEFAULT_OUTPUT_DIR = path.join(__dirname, '..', 'output');
 const CATALOG_CATEGORIES = ['music', 'sfx', 'ambiences', 'sounds'];
@@ -332,7 +333,6 @@ const TOOLS = [
   {
     name: 'list_catalog',
     description: 'Liste les styles musicaux, effets, ambiances ou timbres selon category. Les identifiants de items sont utilisables dans create_music, create_sfx, create_ambience ou play_sound. Lecture seule.',
-    annotations: { readOnlyHint: true, openWorldHint: false },
     inputSchema: { type: 'object', required: ['category'], properties: {
       category: { type: 'string', enum: CATALOG_CATEGORIES },
     } },
@@ -409,7 +409,6 @@ const TOOLS = [
   {
     name: 'manage_outputs',
     description: 'Retrouve les fichiers générés dans un dossier de sortie. list donne les file_id et les chemins. archive libère le chemin d’origine en déplaçant le fichier dans une archive locale. restore le remet en place si le chemin est libre.',
-    annotations: { destructiveHint: true, openWorldHint: false },
     inputSchema: { type: 'object', required: ['action'], properties: {
       action: { type: 'string', enum: OUTPUT_ACTIONS },
       output_dir: { type: 'string', description: 'Dossier utilisé lors de la génération, renvoyé dans managed_outputs.' },
@@ -420,7 +419,7 @@ const TOOLS = [
   },
   {
     name: 'create_music',
-    description: 'Compose et exporte directement un instrumental à partir d’un style et d’un arrangement facultatif. Renvoie un WAV, un MIDI ou les deux. Le paramètre booléen save_project ajoute un projet éditable.',
+    description: 'Compose un instrumental à partir d’un style et écrit un WAV, un MIDI ou les deux. save_project ajoute une partition éditable dans files. Un export portant le même nom peut être remplacé.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -523,7 +522,7 @@ const TOOLS = [
   },
   {
     name: 'create_sfx',
-    description: 'Crée un effet sonore de jeu prêt à l\'emploi (WAV 16 bits, 32 types) : action (jump, coin, pickup, hit, damage, powerup, levelup), combat (explosion, laser, sword, gunShoot, bowShoot), nature (thunder, splash, whoosh), UI (click, hover, error, success, menuOpen, chestOpen, questComplete), personnages (footstep, door, heartbeat, alarm, ghost, forge, bubble, magic, teleport). Déterministe via seed.',
+    description: 'Écrit un effet sonore ponctuel en WAV 16 bits. Choisis kind dans la catégorie sfx de list_catalog. Avec le même kind et le même seed, le fichier portant ce nom peut être remplacé.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -565,7 +564,7 @@ const TOOLS = [
   },
   {
     name: 'create_ambience',
-    description: 'Crée une ambiance de jeu en boucle parfaite (WAV 16 bits) : rain (pluie), storm (orage), wind (vent), forest (forêt), campfire (feu de camp), ocean (océan), river (rivière), cave (grotte), spaceship (vaisseau), cafe (café), night (nuit). Couches de bruit continu + événements stochastiques (gouttes, oiseaux, tonnerre, vagues…) ; le crossfade circulaire rend le raccord de boucle inaudible. Déterministe via seed.',
+    description: 'Écrit une ambiance continue en WAV 16 bits avec raccord de boucle. Choisis kind dans la catégorie ambiences de list_catalog. Avec le même kind et le même seed, le fichier portant ce nom peut être remplacé.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -611,7 +610,7 @@ const TOOLS = [
       required: ['kind'],
     },
   },
-];
+].map((tool) => ({ ...tool, ...toolContract(tool.name, OUTPUT_TOOLS.has(tool.name)) }));
 
 /* ---------------------------------- textes ---------------------------------- */
 
@@ -1323,7 +1322,7 @@ function runTool(name, args) {
     }
     const outputDir = args.output_dir ? path.resolve(String(args.output_dir)) : DEFAULT_OUTPUT_DIR;
     const sfx = createSfx(kind, {
-      seed: args.seed,
+      seed: musicSeed(args.seed),
       volume: args.volume,
       outputDir,
       ...techOptions(args),
@@ -1348,7 +1347,7 @@ function runTool(name, args) {
     }
     const outputDir = args.output_dir ? path.resolve(String(args.output_dir)) : DEFAULT_OUTPUT_DIR;
     const amb = createAmbience(kind, {
-      seed: args.seed,
+      seed: musicSeed(args.seed),
       durationSec: args.duration_seconds,
       volume: args.volume,
       outputDir,

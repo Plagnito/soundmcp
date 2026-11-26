@@ -254,6 +254,15 @@ console.log('— Ambiance : déterminisme + tailles sr/mono —');
   check(!fs.readFileSync(a1.path).equals(fs.readFileSync(a3.path)), 'ambiance : seeds différents → fichiers différents');
 }
 
+console.log('— Graine zéro sur les effets et les ambiances —');
+for (const render of [() => createSfx('coin', { seed: 0, outputDir: TMP }),
+  () => createAmbience('wind', { seed: 0, durationSec: 5, sr: 22050, outputDir: TMP })]) {
+  const first = render();
+  const bytes = fs.readFileSync(first.path);
+  const second = render();
+  check(first.seed === 0 && second.seed === 0 && bytes.equals(fs.readFileSync(second.path)), `${first.kind} : seed 0 conservée et WAV identiques`);
+}
+
 console.log('— list_styles : sections complètes —');
 {
   const text = listStylesText();

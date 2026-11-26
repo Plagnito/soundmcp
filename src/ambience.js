@@ -555,7 +555,7 @@ const AMBIENCE_IDS = Object.keys(AMBIENCE_KINDS);
 function createAmbience(kind, opts = {}) {
   const def = AMBIENCE_KINDS[kind];
   if (!def) throw new Error(`Ambiance inconnue: ${kind}. Disponibles: ${AMBIENCE_IDS.join(', ')}`);
-  const seed = (opts.seed >>> 0) || randomSeed();
+  const seed = opts.seed == null ? randomSeed() : opts.seed >>> 0;
   const rng = makeRng(seed);
   const sr = opts.sr || 44100;
   const durSec = clamp(opts.durationSec ?? def.defaultSec ?? 45, 5, 600);

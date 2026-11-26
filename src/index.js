@@ -17,6 +17,8 @@ const PKG = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'
 
 const SUPPORTED_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18'];
 const PROTOCOL_FALLBACK = '2025-06-18';
+const LEGACY_TOOLS = TOOLS.map(({ outputSchema, ...tool }) => tool);
+let negotiatedProtocol = PROTOCOL_FALLBACK;
 
 const INSTRUCTIONS = [
   'SoundMCP compose des instrumentaux sans voix et des effets sonores pour jeux et médias.',
@@ -86,9 +88,12 @@ async function handleRequest(msg) {
   const isNotification = id === undefined || id === null;
 
   switch (method) {
-    case 'initialize':
-      respond(id, initializeResult(params));
+    case 'initialize': {
+      const result = initializeResult(params);
+      negotiatedProtocol = result.protocolVersion;
+      respond(id, result);
       return;
+    }
 
     case 'notifications/initialized':
     case 'notifications/cancelled':
@@ -100,7 +105,7 @@ async function handleRequest(msg) {
       return;
 
     case 'tools/list':
-      respond(id, { tools: TOOLS });
+      respond(id, { tools: negotiatedProtocol === PROTOCOL_FALLBACK ? TOOLS : LEGACY_TOOLS });
       return;
 
     case 'tools/call': {
@@ -108,6 +113,9 @@ async function handleRequest(msg) {
       const args = (params && params.arguments) || {};
       try {
         const result = await callTool(name, args);
+        if (negotiatedProtocol !== PROTOCOL_FALLBACK && result.structuredContent !== undefined) {
+          result.content.push({ type: 'text', text: JSON.stringify(result.structuredContent) });
+        }
         respond(id, result);
       } catch (err) {
         log(`outil ${name}: ${err.message}`);
