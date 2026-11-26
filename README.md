@@ -109,7 +109,7 @@ Pour partir d’une phrase écrite à la main, passe `motif` à `draft_music`. L
 ### Équilibrer et comparer
 
 - `calibrate_sound` mesure un patch à trois vélocités dans plusieurs registres. Le rapport donne les niveaux, le temps d’attaque et la tenue. Réutilisez son `calibration_path` dans `calibration_paths` avec le même patch et le même pupitre pour appliquer la courbe de gain, dans `draft_music`, `create_music` ou `edit_music`.
-- Les esquisses `lyrical` mesurent le niveau des pupitres sur un passage par section, puis appliquent des corrections bornées en prenant la mélodie comme repère lorsqu’elle est présente. `auto_mix: false` désactive cette correction. `mix_music` rééquilibre un projet existant ou une section précise et livre une nouvelle partition avec le WAV et les corrections appliquées.
+- Les esquisses `lyrical` mesurent le niveau des pupitres sur un passage par section, puis appliquent des corrections bornées en prenant la mélodie comme repère lorsqu’elle est présente. `auto_mix: false` désactive cette correction. Dans `edit_music`, `mix` applique le même équilibrage après les retouches. Passe `mix: {}` pour traiter le projet entier ou indique `section` et `strength` pour régler la portée et l’intensité.
 - `compare_music_choices` rend deux prises anonymes au même niveau. `criterion: "accompaniment"` compare deux niveaux d’accompagnement. `criterion: "breath"` compare deux durées de notes mélodiques sur les mêmes attaques. Après le choix de l’auditeur, transmettez `comparison_path` et `chosen: "A"` ou `"B"` à `learn_music_preference`. Le profil reste dans un fichier local et s’applique aux prochaines esquisses. `profile_path` choisit un autre profil et `use_preferences: false` permet de composer sans en tenir compte.
 - Pour comparer deux montées, appelle `compare_music_choices` avec `criterion: "build"`, un `project_path` et une `section` ou une `arrival_bar`. `progressive` fait entrer progressivement les pupitres d’accompagnement. `break` ménage une respiration juste avant l’arrivée. L’outil livre les deux projets complets et deux WAV anonymes dont le niveau est aligné sur les premières mesures de la reprise quand elles contiennent un signal mesurable. `reveal_path` donne l’ordre des prises.
 - Pour appliquer une montée à la création, passe `build_contour: "progressive"` ou `"break"` à `draft_music`. La montée prépare la reprise si elle existe ou la section la plus intense après l’ouverture. Pour choisir le point d’arrivée et doser l’effet dans un projet existant, passe une retouche `{"type":"shape_build","arrival_bar":17,"before_bars":3,"contour":"break","amount":0.8}` à `edit_music`. `flat` retire l’effet sur la plage visée. Les courbes suivent le tempo de la partition et sont appliquées au WAV et aux stems.
@@ -118,7 +118,7 @@ Le profil par défaut est `~/.soundmcp/preferences.soundmcp.json`. La variable `
 
 ### Faire évoluer les timbres
 
-`list_sounds` donne les identifiants des sons et des couleurs de mix. Avec `sounds`, `play_sound` enchaîne jusqu’à douze extraits dans un WAV à sonie comparable, avec un repère par son. Les trois guitares électriques partent de prises enregistrées et proposent un jeu clair, saturé ou à attaque progressive. Les autres sons incluent clavier sur bande, verre frappé, métal frotté, nappe granulaire et grave pulsé. Le pupitre audio `texture` porte les souffles, raclements, impacts et montées inversées.
+La catégorie `sounds` de `list_catalog` donne les identifiants des sons et des couleurs de mix. Avec `sounds`, `play_sound` enchaîne jusqu’à douze extraits dans un WAV à sonie comparable, avec un repère par son. Les trois guitares électriques partent de prises enregistrées et proposent un jeu clair, saturé ou à attaque progressive. Les autres sons incluent clavier sur bande, verre frappé, métal frotté, nappe granulaire et grave pulsé. Le pupitre audio `texture` porte les souffles, raclements, impacts et montées inversées.
 
 Pour écouter les prises de harpe de concert, de vibraphone et de violoncelles, appelle `play_sound` avec `{"sounds":["harp","vibraphone","cello"]}`. Ces noms fonctionnent aussi dans les instruments d’une section. Dans `draft_music`, tu peux écrire « harpe, vibraphone et violoncelles pizzicato » ou demander des « violoncelles spiccato ». Pour une note de violoncelle, `articulation: "staccato"` sélectionne les prises de spiccato.
 
@@ -177,7 +177,7 @@ Pour utiliser le son dans `draft_music`, `create_music` ou `edit_music`, passez 
 - `vary_sound` accepte le même patch et les directions `brighter`, `darker`, `shorter` et `longer`. `amount` règle l’intensité de la transformation. Il renvoie le son de départ et jusqu’à quatre nouveaux patches avec leurs préécoutes à sonie comparable.
 - `compare_sounds` accepte deux à quatre entrées dans `sounds`, chacune avec `instrument`, `patch` ou `patch_path`. Le jeu et la graine sont communs. Avec `blind: true`, les WAV portent des lettres et la clé est dans un fichier séparé. Les gestes de contact s’appliquent aux sons modaux et aux cordes à guide d’onde.
 
-Les intégrations qui appellent directement `preview_sounds` ou `compare_builds` peuvent utiliser ces noms comme alias. `tools/list` présente `play_sound` et `compare_music_choices` pour découvrir les mêmes parcours.
+Les intégrations peuvent encore appeler directement `list_styles`, `list_sounds`, `preview_sounds`, `compare_builds` et `mix_music`. Le catalogue `tools/list` présente leurs fonctionnalités dans `list_catalog`, `play_sound`, `compare_music_choices` et `edit_music`.
 
 ```json
 {
@@ -256,9 +256,15 @@ Après la sélection, transmettez le `project_path` et les options de livraison.
 
 `transition` commence sur l’équilibre calme et monte vers l’intense sur les deux dernières mesures. Le manifeste commun indique sa montée en échantillons et l’alignement des quatre fichiers. Dans un moteur de jeu, enchaînez la transition une fois et raccordez-la à la boucle intense au même point de la grille.
 
-### `list_styles`
+### `list_catalog`
 
-Liste les styles musicaux, les ambiances et les effets sonores avec leurs usages et tempos. Il aide à choisir un style quand vous voulez orienter `draft_music` ou `create_music`.
+Cherche les styles avec `category: "music"`, les effets avec `"sfx"`, les boucles d’ambiance avec `"ambiences"` ou les timbres avec `"sounds"`.
+
+### `manage_outputs`
+
+Les nouvelles générations retournent `managed_outputs` avec le dossier et les identifiants de leurs fichiers. Utilise `action: "list"` et le même `output_dir` pour retrouver les fichiers actifs ou archivés, avec `offset` et `limit` pour parcourir les résultats.
+
+`action: "archive"` déplace un `file_id` vers l’archive locale du dossier de sortie. `action: "restore"` remet le fichier à sa place si le chemin est disponible. Le rangement est réversible et les générations enregistrées par cette version apparaissent dans l’inventaire.
 
 ### `create_music`
 

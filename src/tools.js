@@ -37,8 +37,14 @@ const { calibrateSound, loadCalibrations, applyCalibrations } = require('./sound
 const { mixSong } = require('./automatic-mix');
 const { CONTOURS, MAX_BEFORE, buildWindow, shapeBuild } = require('./build-shaping');
 const { CHOICES, PREFERENCES, readPreferences, applyPreference, withPreferences, choiceManifest, rememberChoice } = require('./music-preferences');
+const { ACTIONS: OUTPUT_ACTIONS, recordOutputs, manageOutputs } = require('./output-library');
 
 const DEFAULT_OUTPUT_DIR = path.join(__dirname, '..', 'output');
+const CATALOG_CATEGORIES = ['music', 'sfx', 'ambiences', 'sounds'];
+const OUTPUT_TOOLS = new Set(['design_sound', 'calibrate_sound', 'play_sound', 'preview_sounds', 'compare_sounds', 'vary_sound',
+  'draft_music', 'create_music', 'edit_music', 'mix_music', 'preview_music', 'compare_music_choices', 'compare_builds',
+  'finish_music', 'create_sfx', 'create_ambience']);
+const PROJECT_OUTPUT_TOOLS = new Set(['edit_music', 'mix_music', 'finish_music']);
 const DEFAULT_PROFILE = process.env.SOUNDMCP_PROFILE_PATH || path.join(os.homedir(), '.soundmcp', 'preferences.soundmcp.json');
 const SR_CHOICES = [22050, 44100, 48000];
 
@@ -161,7 +167,7 @@ const PATCH_SOURCE_PROPERTIES = {
 const PATCH_SOURCE_REQUIRED = [{ required: ['patch'] }, { required: ['patch_path'] }];
 const CATALOG_ID = { type: 'string', enum: Object.keys(AUDITION_SOUNDS) };
 const SOUND_SOURCE_PROPERTIES = { ...PATCH_SOURCE_PROPERTIES,
-  instrument: { ...CATALOG_ID, description: 'Identifiant du son intégré, renvoyé par list_sounds.' } };
+  instrument: { ...CATALOG_ID, description: 'Identifiant intégré de la catégorie sounds de list_catalog.' } };
 const SOUND_SOURCE_REQUIRED = [...PATCH_SOURCE_REQUIRED, { required: ['instrument'] }];
 const SOUND_LIST_PROPERTIES = {
   sounds: { type: 'array', minItems: 1, maxItems: 12, items: { anyOf: [CATALOG_ID, CUSTOM_ID] },
@@ -324,9 +330,12 @@ const TOOLS = [
     }, oneOf: PATCH_SOURCE_REQUIRED },
   },
   {
-    name: 'list_sounds',
-    description: 'Liste les timbres et les couleurs de mix sans écrire de fichiers. Passe un identifiant à play_sound pour l’écouter, ou à l’arrangement pour l’utiliser dans un morceau.',
-    inputSchema: { type: 'object', properties: {} },
+    name: 'list_catalog',
+    description: 'Liste les styles musicaux, effets, ambiances ou timbres selon category. Les identifiants de items sont utilisables dans create_music, create_sfx, create_ambience ou play_sound. Lecture seule.',
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    inputSchema: { type: 'object', required: ['category'], properties: {
+      category: { type: 'string', enum: CATALOG_CATEGORIES },
+    } },
   },
   {
     name: 'draft_music',
@@ -367,13 +376,6 @@ const TOOLS = [
     } },
   },
   {
-    name: 'mix_music',
-    description: 'Rééquilibre les pupitres à partir de mesures audio section par section. Produit un WAV et une copie éditable avec les corrections de gain.',
-    inputSchema: { type: 'object', required: ['project_path'], properties: {
-      project_path: PROJECT_SCHEMA, section: SECTION_SELECTOR, mix_strength: UNIT, title: { type: 'string' }, output_dir: { type: 'string' },
-    } },
-  },
-  {
     name: 'compare_music_choices',
     description: 'Part d’un seul projet pour générer deux variantes anonymes à sonie alignée selon criterion. accompaniment et breath livrent un comparison_path pour learn_music_preference. build compare deux montées et livre les projets complets et un reveal_path.',
     inputSchema: { type: 'object', required: ['project_path', 'criterion'], properties: {
@@ -405,9 +407,16 @@ const TOOLS = [
     } },
   },
   {
-    name: 'list_styles',
-    description: 'Liste les styles musicaux, les effets et les ambiances en boucle sans écrire de fichiers. Donne les identifiants à passer à create_music, create_sfx et create_ambience.',
-    inputSchema: { type: 'object', properties: {} },
+    name: 'manage_outputs',
+    description: 'Retrouve les fichiers générés dans un dossier de sortie. list donne les file_id et les chemins. archive libère le chemin d’origine en déplaçant le fichier dans une archive locale. restore le remet en place si le chemin est libre.',
+    annotations: { destructiveHint: true, openWorldHint: false },
+    inputSchema: { type: 'object', required: ['action'], properties: {
+      action: { type: 'string', enum: OUTPUT_ACTIONS },
+      output_dir: { type: 'string', description: 'Dossier utilisé lors de la génération, renvoyé dans managed_outputs.' },
+      file_id: { type: 'string', description: 'Identifiant du fichier pour archive ou restore.' },
+      offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 },
+    }, oneOf: [{ properties: { action: { const: 'list' } } },
+      { properties: { action: { enum: ['archive', 'restore'] } }, required: ['file_id'] }] },
   },
   {
     name: 'create_music',
@@ -418,7 +427,7 @@ const TOOLS = [
         style: {
           type: 'string',
           enum: STYLE_IDS,
-          description: 'Style musical. Utilise list_styles pour voir le détail de chacun.',
+          description: 'Style musical. Consulte la catégorie music de list_catalog.',
         },
         duration_seconds: {
           type: 'number',
@@ -489,7 +498,7 @@ const TOOLS = [
   },
   {
     name: 'edit_music',
-    description: 'Reprend un projet SoundMCP enregistré. Permet de retoucher un pupitre, remplacer une section, façonner une montée ou proposer jusqu’à cinq fins. Produit une nouvelle partition.',
+    description: 'Crée une copie retouchée d’un projet existant. edits modifie les notes, sections, gains ou montées. mix rééquilibre les pupitres après les retouches. ending_variants propose plusieurs fins.',
     inputSchema: {
       type: 'object', required: ['project_path'], properties: {
         project_path: { type: 'string', description: 'Chemin du fichier .soundmcp.json retourné par create_music ou edit_music.' },
@@ -503,6 +512,8 @@ const TOOLS = [
           replacement: { type: 'object', properties: SECTION_PROPERTIES },
           bar: { type: 'integer', minimum: 1 }, notes: MEASURE_NOTES_SCHEMA, instrument: { type: 'string' },
         } } },
+        mix: { type: 'object', additionalProperties: false, description: 'Équilibre les pupitres après les retouches, sur une section ou le projet entier.',
+          properties: { section: SECTION_SELECTOR, strength: UNIT } },
         ending_variants: { type: 'integer', minimum: 1, maximum: 5 },
         ...EXPORT_PROPERTIES,
         ...PATCH_IMPORT,
@@ -638,7 +649,7 @@ function listStylesText() {
   lines.push('- Instrumental uniquement. Pour la production, utilise sampling_rate: 48000 et bit_depth: 24. stems: true ajoute les pupitres avant mastering.');
   lines.push('- MIDI : instruments séparés et marqueurs de sections. arrangement permet de choisir les accords, les pupitres et le motif.');
   lines.push('- Composition guidée : draft_music accepte une phrase et retourne les projets de trois esquisses. finish_music livre le projet choisi.');
-  lines.push('- Timbres : list_sounds présente la palette. Passe les identifiants à sounds dans play_sound. sound_design: evolving fait changer de matière entre sections.');
+  lines.push('- Timbres : la catégorie sounds de list_catalog présente la palette. Passe les identifiants à sounds dans play_sound.');
   lines.push('- Synthèse : design_sound invente un son à partir d’un brief ou d’un patch. Importe le fichier patch_path dans patch_paths et affecte son identifiant dans patch_roles.');
   lines.push('- Studio : piano, contrebasse, batterie, cordes, bois, cor, guitares, harpe, vibraphone et violoncelles enregistrés.');
   lines.push('- Jeu : editions livre trois boucles et une transition alignées. cuts dans finish_music produit des formats de 15, 30 ou 60 secondes.');
@@ -804,6 +815,20 @@ function listSounds() {
     { sounds, colors, instruments: Object.keys(INSTRUMENTS), designTool: 'design_sound' });
 }
 
+function listCatalog(category) {
+  if (category === 'sounds') {
+    const result = listSounds();
+    const { sounds, ...details } = result.structuredContent;
+    return { ...result, structuredContent: { category, items: sounds, ...details } };
+  }
+  if (!CATALOG_CATEGORIES.includes(category)) throw new Error('category attend music, sfx, ambiences ou sounds.');
+  const items = category === 'music' ? STYLE_IDS.map((id) => {
+    const { label, desc, defaults, use } = STYLES[id];
+    return { id, label, description: desc, tempo: defaults.tempo, duration_seconds: defaults.duration, loop: defaults.loop, use };
+  }) : (category === 'sfx' ? SFX_IDS : AMBIENCE_IDS).map((id) => ({ id, description: (category === 'sfx' ? SFX_KINDS : AMBIENCE_KINDS)[id].desc }));
+  return resultText(items.map(({ id, description }) => `- ${id} · ${description}`).join('\n'), { category, items });
+}
+
 function designSound(args) {
   if ((args.brief === undefined) === (args.patch === undefined)) throw new Error('Indique un brief ou un patch.');
   const seed = musicSeed(args.seed);
@@ -908,7 +933,7 @@ function previewSounds(args) {
   const patches = importPatches(args.patch_paths);
   if (!Array.isArray(args.sounds) || !args.sounds.length || args.sounds.length > 12 ||
       args.sounds.some((id) => typeof id !== 'string' || (!Object.hasOwn(AUDITION_SOUNDS, id) && !Object.hasOwn(patches, id)))) {
-    throw new Error('sounds attend 1 à 12 sons connus. Consulte list_sounds.');
+    throw new Error('sounds attend 1 à 12 sons connus. Consulte la catégorie sounds de list_catalog.');
   }
   const timbre = args.timbre ?? 0.5;
   if (!Number.isFinite(timbre) || timbre < 0 || timbre > 1) throw new Error('timbre doit être entre 0 et 1.');
@@ -1067,6 +1092,7 @@ function compareMusicChoices(args) {
   const manifest = takes.map((take, index) => {
     const { label } = files[index];
     const project_path = writeProject(path.join(folder, `${label}.soundmcp.json`), take.song, bit_depth).path;
+    files[index].project_path = project_path;
     return { label, option: take.option, project_path };
   });
   const comparison_path = jsonFile(folder, 'choix.soundmcp-comparison.json', choiceManifest(criterion, manifest));
@@ -1185,7 +1211,7 @@ function finishMusic(args) {
  * (le serveur MCP convertit en result isError, le CLI affiche et sort en 1).
  * Retourne { content, structuredContent }.
  */
-async function callTool(name, args = {}) {
+function runTool(name, args) {
   if (name === 'design_sound') return designSound(args);
   if (name === 'calibrate_sound') return calibration(args);
   if (name === 'mix_music') return mixMusic(args);
@@ -1204,6 +1230,12 @@ async function callTool(name, args = {}) {
     return resultText(`${report.title ?? 'Partition'} · ${report.events.length} / ${report.event_count} événement(s).`, report);
   }
   if (name === 'list_sounds') return listSounds();
+  if (name === 'list_catalog') return listCatalog(args.category);
+  if (name === 'manage_outputs') {
+    const result = manageOutputs(outputDirectory(args.output_dir), args);
+    const text = result.files ? result.files.map(({ file_id, state, path }) => `- ${file_id} · ${state} · ${path}`).join('\n') : `${result.state} · ${result.path}`;
+    return resultText(text || 'Aucune sortie enregistrée dans ce dossier.', result);
+  }
   if (name === 'preview_sounds') return previewSounds(args);
   if (name === 'draft_music') return draftMusic(args);
   if (name === 'preview_music') return previewMusic(args);
@@ -1217,7 +1249,7 @@ async function callTool(name, args = {}) {
   if (name === 'create_music') {
     const styleId = String(args.style || '').trim();
     if (!Object.hasOwn(STYLES, styleId)) {
-      throw new Error(`Style inconnu: "${styleId}". Styles valides: ${STYLE_IDS.join(', ')}. Appelle list_styles pour le détail.`);
+      throw new Error(`Style inconnu: "${styleId}". Styles valides: ${STYLE_IDS.join(', ')}. Consulte la catégorie music de list_catalog.`);
     }
     const outputDir = args.output_dir ? path.resolve(String(args.output_dir)) : DEFAULT_OUTPUT_DIR;
     const outputs = musicOutputs(args);
@@ -1262,8 +1294,13 @@ async function callTool(name, args = {}) {
     const tech = techOptions({ sampling_rate: args.sampling_rate ?? project.song.sr, mono: args.mono ?? project.song.mono });
     const patches = importPatches(args.patch_paths, project.song.patches);
     const editable = Object.keys(patches).length ? { ...project.song, patches } : project.song;
-    const updated = applyCalibrations(withInterpretation({ ...assignPatchRoles(editSong(editable, args.edits), args.patch_roles, patches),
+    const revised = applyCalibrations(withInterpretation({ ...assignPatchRoles(editSong(editable, args.edits), args.patch_roles, patches),
       ...tech, palette: args.palette ?? project.song.palette }, args), loadCalibrations(args.calibration_paths));
+    if (args.mix !== undefined && (!args.mix || typeof args.mix !== 'object' || Array.isArray(args.mix) ||
+        Object.keys(args.mix).some((key) => key !== 'section' && key !== 'strength'))) throw new Error('mix attend section et strength.');
+    const mixing = args.mix ? mixSong(revised, { strength: args.mix.strength,
+      sectionIndex: args.mix.section === undefined ? undefined : sectionIndex(revised, args.mix.section) }) : undefined;
+    const updated = mixing?.song ?? revised;
     updated.history = [...(updated.history ?? []), { action: 'revision', source }].slice(-60);
     const variants = args.ending_variants === undefined ? [updated] : endingVariations(updated, args.ending_variants);
     const results = variants.map((song, i) => {
@@ -1276,7 +1313,7 @@ async function callTool(name, args = {}) {
       return exportMusic({ ...song, meta: { ...song.meta, title: versionTitle } }, outputs, outputDir, base, { ...args, save_project: true });
     });
     return { content: [{ type: 'text', text: results.map((result) => musicSummaryText(result.meta, result.files, result.audio)).join('\n\n') }],
-      structuredContent: { versions: results } };
+      structuredContent: { versions: results, ...(mixing ? { mix: mixing.sections } : {}) } };
   }
 
   if (name === 'create_sfx') {
@@ -1333,6 +1370,25 @@ async function callTool(name, args = {}) {
   }
 
   throw new Error(`Outil inconnu: ${name}. Disponibles: ${TOOLS.map((t) => t.name).join(', ')}.`);
+}
+
+async function callTool(name, args = {}) {
+  const result = runTool(name, args);
+  if (!OUTPUT_TOOLS.has(name)) return result;
+  const data = result.structuredContent;
+  const files = [...(data.files ?? []), ...(data.versions ?? []).flatMap(({ files }) => files)];
+  const takes = [...(data.candidates ?? []), ...(data.sounds ?? []), ...(data.reference ? [data.reference] : [])];
+  const paths = [data.path, data.preview_path, data.patch_path, data.calibration_path, data.report_path, data.reveal_path, data.comparison_path,
+    ...files.flatMap(({ path, project_path }) => [path, project_path]),
+    ...takes.flatMap(({ preview_path, project_path, patch_path }) => [preview_path, project_path, patch_path])].filter(Boolean);
+  const fallback = PROJECT_OUTPUT_TOOLS.has(name) ? path.dirname(path.resolve(args.project_path)) : DEFAULT_OUTPUT_DIR;
+  try {
+    const tracked = recordOutputs(outputDirectory(args.output_dir, fallback), name, paths);
+    if (tracked) data.managed_outputs = tracked;
+  } catch (error) {
+    data.output_management_warning = error.message;
+  }
+  return result;
 }
 
 module.exports = {

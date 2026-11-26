@@ -70,14 +70,20 @@ async function main() {
   const cutoff = rebuilt => rebuilt.meta.sections[0].bars * 4;
   assert.deepEqual(repaired.events.filter((e) => e.beat >= cutoff(repaired)), original.events.filter((e) => e.beat >= cutoff(original)));
 
-  const { structuredContent: catalog } = await callTool('list_sounds');
+  const { structuredContent: catalog } = await callTool('list_catalog', { category: 'sounds' });
+  const { structuredContent: oldCatalog } = await callTool('list_sounds');
+  assert.deepEqual(oldCatalog.sounds, catalog.items);
+  for (const [category, id] of [['music', 'lofi'], ['sfx', 'jump'], ['ambiences', 'rain']]) {
+    const { structuredContent: listing } = await callTool('list_catalog', { category });
+    assert(listing.items.some((item) => item.id === id));
+  }
   const added = ['piano', 'upright', 'strings', 'flute', 'clarinet', 'brass', 'acoustic-guitar'];
-  const catalogIds = catalog.sounds.map(({ id }) => id);
+  const catalogIds = catalog.items.map(({ id }) => id);
   assert.deepEqual(catalogIds, [...Object.keys(SOUNDS), ...added]);
-  assert(catalog.sounds.filter(({ id }) => added.includes(id)).every(({ source }) => source === 'prise instrumentale'));
+  assert(catalog.items.filter(({ id }) => added.includes(id)).every(({ source }) => source === 'prise instrumentale'));
   const schema = (name) => TOOLS.find((tool) => tool.name === name).inputSchema;
-  assert.equal(TOOLS.length, 19);
-  assert(!TOOLS.some(({ name }) => name === 'preview_sounds' || name === 'compare_builds'));
+  assert.equal(TOOLS.length, 18);
+  assert(!TOOLS.some(({ name }) => ['preview_sounds', 'compare_builds', 'list_sounds', 'list_styles', 'mix_music'].includes(name)));
   assert.deepEqual(schema('play_sound').properties.sounds.items.anyOf[0].enum, catalogIds);
   assert.deepEqual(schema('play_sound').properties.instrument.enum, catalogIds);
   assert.deepEqual(schema('compare_sounds').properties.sounds.items.properties.instrument.enum, catalogIds);
@@ -101,6 +107,29 @@ async function main() {
   });
   assert.deepEqual(new Set(JSON.parse(fs.readFileSync(comparison.reveal_path, 'utf8')).map(({ id }) => id)), new Set(['clarinet', 'flute']));
   assert(Math.abs(comparison.files[0].integratedLufs - comparison.files[1].integratedLufs) < 0.1);
+
+  const output_dir = path.join(dir, 'managed');
+  const manage = async (action, args) => (await callTool('manage_outputs', { action, output_dir, ...args })).structuredContent;
+  assert.deepEqual((await manage('list')).files, []);
+  assert(!fs.existsSync(output_dir));
+  const { structuredContent: effect } = await callTool('create_sfx', { kind: 'coin', seed: 7, output_dir });
+  const { file_id, path: output } = effect.managed_outputs.files[0];
+  const bytes = fs.readFileSync(output);
+  fs.writeFileSync(path.join(output_dir, 'personnel.wav'), bytes);
+  assert.deepEqual((await manage('list')).files.map((file) => file.file_id), [file_id]);
+  const archived = await manage('archive', { file_id });
+  assert(!fs.existsSync(output));
+  assert.deepEqual(fs.readFileSync(archived.archive_path), bytes);
+  assert.equal((await manage('archive', { file_id })).state, 'archived');
+  assert.equal((await manage('list')).files[0].state, 'archived');
+  fs.writeFileSync(output, 'Fichier occupant le chemin d’origine');
+  await assert.rejects(manage('restore', { file_id }), /autre fichier/);
+  assert.equal(fs.readFileSync(output, 'utf8'), 'Fichier occupant le chemin d’origine');
+  fs.renameSync(output, path.join(output_dir, 'occupant.wav'));
+  await manage('restore', { file_id });
+  assert.deepEqual(fs.readFileSync(output), bytes);
+  assert.equal((await manage('restore', { file_id })).state, 'active');
+  await assert.rejects(manage('archive', { file_id: '../personnel.wav' }), /file_id/);
   console.log('Design sonore : catalogue, vrais signaux de guitare, contrastes de section, stem de textures et nuancier vérifiés.');
 }
 

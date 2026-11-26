@@ -157,6 +157,10 @@ async function main() {
   assert.equal(mixed.mix.length, 1);
   assert.equal(mixed.mix[0].name, 'Thème');
   assert(mixed.files.some((file) => file.format === 'project'));
+  const mixedEdit = (await callTool('edit_music', { project_path: warmPath, mix: { section: 'Thème', strength: 0.6 },
+    format: 'midi', output_dir: dir })).structuredContent;
+  assert.deepEqual(mixedEdit.mix, mixed.mix);
+  for (const file of mixedEdit.versions[0].files) assert(mixedEdit.managed_outputs.files.some((entry) => entry.path === file.path));
   assert.deepEqual(fs.readFileSync(warmPath), source);
   const comparison = (await callTool('compare_music_choices', { project_path: warmPath, criterion: 'accompaniment', section: 'Thème',
     seed: 1, output_dir: dir })).structuredContent;

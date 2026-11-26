@@ -18,11 +18,11 @@ function readSectionSounds(section, label) {
   if (instruments !== undefined && (!instruments || typeof instruments !== 'object' || Array.isArray(instruments) ||
       Object.entries(instruments).some(([part, inst]) => !SOUND_PARTS.includes(part) ||
         !(isCustom(inst) || Object.hasOwn(INSTRUMENTS, inst)) || TEXTURES.includes(inst)))) {
-    throw new Error(`${label} : instruments attend des pupitres mélodiques et des instruments connus. Consulte list_sounds.`);
+    throw new Error(`${label} : instruments attend des pupitres mélodiques et des instruments connus. Consulte la catégorie sounds de list_catalog.`);
   }
   if (textures !== undefined && (!Array.isArray(textures) || textures.length > 32)) throw new Error(`${label} : jusqu’à 32 textures attendues.`);
   const notes = textures?.map((texture) => {
-    if (!texture || !TEXTURES.includes(texture.sound)) throw new Error(`${label} : texture inconnue. Consulte list_sounds.`);
+    if (!texture || !TEXTURES.includes(texture.sound)) throw new Error(`${label} : texture inconnue. Consulte la catégorie sounds de list_catalog.`);
     const { sound, bar = 1, beat = 0, duration = 2, level = 0.26, pan = 0, timbre = 0.5, midi } = texture;
     const pulses = section.meter?.[0] ?? 4;
     if (!Number.isInteger(bar) || bar < 1 || bar > section.bars || !Number.isFinite(beat) || beat < 0 || beat >= pulses ||

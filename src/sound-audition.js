@@ -40,7 +40,7 @@ function loadSound(source) {
   const id = source?.instrument;
   if (id === undefined) return loadPatch(source);
   if (source.patch !== undefined || source.patch_path !== undefined) throw new Error('Indique un seul de instrument, patch ou patch_path.');
-  if (typeof id !== 'string' || !Object.hasOwn(AUDITION_SOUNDS, id)) throw new Error('Instrument inconnu. Consulte list_sounds.');
+  if (typeof id !== 'string' || !Object.hasOwn(AUDITION_SOUNDS, id)) throw new Error('Instrument inconnu. Consulte la catégorie sounds de list_catalog.');
   const [label, , part] = AUDITION_SOUNDS[id];
   return { id, label: source.title ?? label, part };
 }
