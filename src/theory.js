@@ -53,8 +53,7 @@ function midiToName(m, useFlats = false) {
 function parseNote(str) {
   if (!str) return null;
   const s = String(str).trim().toLowerCase();
-  if (NOTE_ALIASES[s] !== undefined) return NOTE_ALIASES[s];
-  return null;
+  return Object.hasOwn(NOTE_ALIASES, s) ? NOTE_ALIASES[s] : null;
 }
 
 /**
@@ -72,7 +71,7 @@ function parseKey(str) {
     scaleId = MODE_ALIASES[norm] || MODE_ALIASES[norm.replace(/\s/g, '')] || null;
     if (!scaleId) return null;
   }
-  if (!SCALES[scaleId]) return null;
+  if (!Object.hasOwn(SCALES, scaleId)) return null;
   return { root, scaleId };
 }
 
@@ -96,14 +95,6 @@ const TRIAD_QUALITY = (a, b) => {
   if (a === 3 && b === 3) return 'dim';
   if (a === 4 && b === 4) return 'aug';
   return 'sus';
-};
-
-const SEVENTH_NAME = (triad, seventhInterval) => {
-  // seventhInterval = top - bottom
-  if (seventhInterval === 11) return triad === 'maj' ? 'maj7' : 'minMaj7';
-  if (seventhInterval === 10) return triad === 'maj' ? '7' : triad === 'min' ? 'm7' : 'ø7';
-  if (seventhInterval === 9) return triad === 'min' ? '6' : '6';
-  return '7';
 };
 
 const TRIAD_SUFFIX = { maj: '', min: 'm', dim: 'dim', aug: 'aug', sus: 'sus' };
@@ -132,16 +123,14 @@ function chordFromDegree(keyRootMidi, scale, deg, opts = {}) {
 
   const pc = ((notes[0] % 12) + 12) % 12;
   const letter = SHARPS[pc];
-  let name = letter + TRIAD_SUFFIX[triad];
+  let suffix = TRIAD_SUFFIX[triad];
   if (opts.seventh) {
     const sev = notes[3] - notes[0];
-    name += SEVENTH_NAME(triad, sev).replace(/^m(?=7)/, triad === 'min' ? 'm' : 'm');
-    // normalise : min7 -> m7
-    if (SEVENTH_NAME(triad, sev) === 'm7') name = letter + 'm7';
-    else if (SEVENTH_NAME(triad, sev) === '7') name = letter + '7';
-    else if (SEVENTH_NAME(triad, sev) === 'maj7') name = letter + 'maj7';
+    if (triad === 'dim' && sev === 10) suffix = 'ø7';
+    else suffix += sev === 11 ? 'maj7' : '7';
   }
-  if (opts.ninth) name += 'add9';
+  if (opts.ninth) suffix += 'add9';
+  const name = letter + suffix;
 
   const romanBase = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'][((deg % L) + L) % L];
   let roman = triad === 'min' || triad === 'dim' ? romanBase.toLowerCase() : romanBase;
@@ -150,6 +139,35 @@ function chordFromDegree(keyRootMidi, scale, deg, opts = {}) {
 
   const pitchClasses = notes.map((n) => ((n % 12) + 12) % 12);
   return { deg, notes, pitchClasses, name, roman, quality: triad };
+}
+
+const CHORD_INTERVALS = {
+  '': [0, 4, 7], m: [0, 3, 7], dim: [0, 3, 6], aug: [0, 4, 8], sus2: [0, 2, 7], sus4: [0, 5, 7],
+  '5': [0, 7, 12], '6': [0, 4, 7, 9], m6: [0, 3, 7, 9], add9: [0, 4, 7, 14], madd9: [0, 3, 7, 14],
+  '7': [0, 4, 7, 10], maj7: [0, 4, 7, 11], m7: [0, 3, 7, 10], mMaj7: [0, 3, 7, 11],
+  aug7: [0, 4, 8, 10], augmaj7: [0, 4, 8, 11], sus7: [0, 5, 7, 10], susmaj7: [0, 5, 7, 11],
+  dim7: [0, 3, 6, 9], dimMaj7: [0, 3, 6, 11], m7b5: [0, 3, 6, 10], '7sus4': [0, 5, 7, 10],
+  '7b9': [0, 4, 7, 10, 13], '7#9': [0, 4, 7, 10, 15], '9': [0, 4, 7, 10, 14],
+  maj9: [0, 4, 7, 11, 14], m9: [0, 3, 7, 10, 14],
+  '11': [0, 4, 7, 10, 14, 17], m11: [0, 3, 7, 10, 14, 17], '13': [0, 4, 7, 10, 14, 21],
+};
+
+function chordFromSymbol(symbol) {
+  const normalized = symbol.trim().replace(/♯/g, '#').replace(/♭/g, 'b');
+  const match = /^([A-Ga-g][#b]?)([^/]*)(?:\/([A-Ga-g][#b]?))?$/.exec(normalized);
+  if (!match) throw new Error(`Accord invalide : ${symbol}.`);
+  const aliases = { M7: 'maj7', M9: 'maj9', 'Δ7': 'maj7', 'Δ9': 'maj9', min: 'm', min7: 'm7', min9: 'm9',
+    mmaj7: 'mMaj7', dimmaj7: 'dimMaj7', 'º': 'dim', '°': 'dim', '°7': 'dim7', 'ø7': 'm7b5', '+': 'aug', sus: 'sus4' };
+  const [, root, type, bass] = match;
+  const extraNinth = type.endsWith('add9');
+  const baseType = extraNinth ? type.slice(0, -4) : type;
+  const suffix = Object.hasOwn(aliases, baseType) ? aliases[baseType] : baseType;
+  if (!Object.hasOwn(CHORD_INTERVALS, suffix)) throw new Error(`Accord non reconnu : ${symbol}.`);
+  const rootPc = parseNote(root);
+  const intervals = CHORD_INTERVALS[suffix];
+  const notes = (extraNinth ? [...new Set([...intervals, 14])] : intervals).map((interval) => 48 + rootPc + interval);
+  return { notes, pitchClasses: [...new Set(notes.map((midi) => midi % 12))],
+    name: normalized, roman: normalized, bassPc: bass ? parseNote(bass) : rootPc, explicit: true };
 }
 
 /** Intervalles de 7e pour choisir des colorations d'accord. */
@@ -168,5 +186,6 @@ module.exports = {
   degreeSemitone,
   degreeToMidi,
   chordFromDegree,
+  chordFromSymbol,
   isConsonantWith,
 };

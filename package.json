@@ -1,7 +1,7 @@
 {
   "name": "@plagnito/soundmcp",
-  "version": "1.2.0",
-  "description": "Serveur MCP de composition musicale pour IA : musiques de jeu (ambiant, lo-fi, chiptune, épique…), effets sonores et ambiances en boucle parfaite, rendus en WAV/MIDI, zéro dépendance.",
+  "version": "1.17.0",
+  "description": "Serveur MCP de composition instrumentale et de synthèse programmable : esquisses, sons personnels, retouches et exports WAV/MIDI.",
   "main": "src/index.js",
   "author": "Plagnito",
   "repository": {
@@ -30,6 +30,10 @@
   "files": [
     "src",
     "scripts",
+    "banks/studio/*.json",
+    "banks/studio/*.pcm.br",
+    "banks/studio/CREDITS.md",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
@@ -38,7 +42,7 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node scripts/smoke.js",
+    "test": "node scripts/smoke.js && node scripts/quality.js && node scripts/studio.js && node scripts/workflow.js && node scripts/sound-design.js && node scripts/custom-synth.js",
     "demo": "node src/cli.js music lofi --dur 24 --seed 7"
   },
   "bin": {

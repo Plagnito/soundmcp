@@ -1,2 +1,5 @@
-# Exports générés (démos, tests) — pas de binaires dans le dépôt
-output/
+# Exports locaux et banques PCM avant compression
+/output/
+/tmp/
+/debug.log
+/banks/studio/*.pcm

@@ -11,6 +11,7 @@
  *   node src/cli.js help
  */
 
+const { readFileSync } = require('node:fs');
 const { callTool } = require('./tools');
 
 const USAGE = [
@@ -19,6 +20,14 @@ const USAGE = [
   'Commandes :',
   '  list                                   Liste les styles, les ambiances et les effets sonores.',
   '  music <style> [options]                Compose une piste.',
+  '  edit <projet.soundmcp.json> [options]  Reprend une partition enregistrée.',
+  '  draft "brief" [options]                Crée trois esquisses instrumentales.',
+  '  sounds                                 Liste les timbres et les couleurs de mix.',
+  '  sound-preview <sons séparés par virgules>   Joue le nuancier sonore.',
+  '  design-sound "description" [options]  Invente un son avec réglages réutilisables.',
+  '  finish <projet.soundmcp.json> [options] Rend le master et les livrables.',
+  '  preview <projet> [projet B] [projet C] Préécoute à niveau égal.',
+  '  analyze <projet ou WAV>                Mesures et historique.',
   '  sfx <kind> [options]                   Crée un effet sonore.',
   '  ambience <kind> [options]              Crée une ambiance en boucle parfaite.',
   '  help                                   Cette aide.',
@@ -34,8 +43,27 @@ const USAGE = [
   '  --out dir       Dossier de sortie (défaut : output/).',
   '  --title "..."   Titre (sert de nom de fichier).',
   '  --sr N          Fréquence d\'échantillonnage : 22050, 44100 (défaut) ou 48000.',
+  '  --bits N        Master WAV en 16 bits (défaut) ou 24 bits.',
+  '  --stems         Pupitres séparés avant mastering, en WAV 32 bits flottant.',
+  '  --arrangement fichier.json  Charge les sections et le motif.',
+  '  --palette studio|synth Choisit les enregistrements instrumentaux ou la synthèse.',
+  '  --project       Enregistre la partition pour edit.',
+  '  --editions loop,calm,intense  Exporte les boucles alignées.',
+  '  --loop-region début:mesures   Indique la première mesure et le nombre de mesures.',
   '  --mono          Exporte en mono (taille moitié).',
   '  --json          Affiche les métadonnées en JSON.',
+  '',
+  'Options de edit :',
+  '  --edits fichier.json  Charge le tableau de retouches.',
+  '  --ending-variants N   Génère 1 à 5 fins.',
+  '  Les options WAV, MIDI et éditions sont également disponibles.',
+  '  draft : --dur N, --seed N, --variants N, --title, --out, --json.',
+  '  draft et music : --sound-design classic|evolving.',
+  '  draft et music : --orchestral-percussion march|drive|none.',
+  '  design-sound : --definition fichier.json, --note C4, --dur N, --gate N.',
+  '  Import : --patch fichier.soundmcp-patch.json et --patch-role pupitre:identifiant.',
+  '  finish : --cuts 15,30,60, --editions loop,calm,intense,transition, --no-stems.',
+  '  preview : --blind, --section nom, --loop-region début:mesures, --dur N.',
   '',
   'Options de sfx :',
   '  --seed N        Graine (variantes reproductibles).',
@@ -79,11 +107,49 @@ function parseArgs(argv) {
       case 'seed': args.seed = num('seed'); break;
       case 'vol': args.vol = num('vol'); break;
       case 'sr': args.sr = num('sr'); break;
+      case 'bits': args.bits = num('bits'); break;
+      case 'stems': args.stems = true; break;
+      case 'no-stems': args.stems = false; break;
+      case 'variants': args.variants = num('variants'); break;
+      case 'cuts': args.cuts = str('cuts').split(',').map(Number); break;
+      case 'section': {
+        const section = str('section');
+        args.section = /^\d+$/.test(section) ? Number(section) : section;
+        break;
+      }
+      case 'blind': args.blind = true; break;
+      case 'arrangement': args.arrangement = str('arrangement'); break;
+      case 'palette': args.palette = str('palette'); break;
+      case 'sound-design': args.soundDesign = str('sound-design'); break;
+      case 'orchestral-percussion': args.orchestralPercussion = str('orchestral-percussion'); break;
+      case 'timbre': args.timbre = num('timbre'); break;
+      case 'definition': args.definition = str('definition'); break;
+      case 'note': args.note = str('note'); break;
+      case 'gate': args.gate = num('gate'); break;
+      case 'patch': (args.patchPaths ??= []).push(str('patch')); break;
+      case 'patch-role': {
+        const mapping = str('patch-role').split(':');
+        if (mapping.length !== 2 || !mapping[0] || !mapping[1]) throw new Error('Option --patch-role attend pupitre:identifiant.');
+        args.patchRoles = { ...args.patchRoles, [mapping[0]]: mapping[1] };
+        break;
+      }
+      case 'project': args.project = true; break;
+      case 'editions': args.editions = str('editions').split(',').map((value) => value.trim()); break;
+      case 'loop-region': {
+        const raw = str('loop-region');
+        if (!/^\d+:\d+$/.test(raw)) throw new Error('Option --loop-region attend début:mesures.');
+        const [start_bar, bars] = raw.split(':').map(Number);
+        args.loopRegion = { start_bar, bars };
+        break;
+      }
+      case 'edits': args.edits = str('edits'); break;
+      case 'ending-variants': args.endings = num('ending-variants'); break;
       case 'key': args.key = str('key'); break;
       case 'out': args.out = str('out'); break;
       case 'title': args.title = str('title'); break;
       case 'midi': args.midi = true; break;
       case 'both': args.both = true; break;
+      case 'wav': args.wav = true; break;
       case 'loop': args.loop = true; break;
       case 'no-loop': args.loop = false; break;
       case 'mono': args.mono = true; break;
@@ -93,6 +159,8 @@ function parseArgs(argv) {
   }
   return args;
 }
+
+const readJson = (file) => JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -110,6 +178,73 @@ async function main() {
     return;
   }
 
+  const musicOptions = {
+    format: args.both ? 'both' : args.midi ? 'midi' : 'wav',
+    sampling_rate: args.sr,
+    bit_depth: args.bits,
+    stems: args.stems,
+    mono: args.mono,
+    output_dir: args.out,
+    title: args.title,
+    palette: args.palette,
+    patch_paths: args.patchPaths,
+    patch_roles: args.patchRoles,
+    editions: args.editions,
+    loop_region: args.loopRegion,
+  };
+
+  const display = (res) => {
+    console.log(res.content[0].text);
+    if (args.json) console.log(JSON.stringify(res.structuredContent, null, 2));
+  };
+
+  if (cmd === 'draft') {
+    display(await callTool('draft_music', { brief: args._.join(' '), duration_seconds: args.dur, tempo: args.bpm,
+      key: args.key, loop: args.loop, seed: args.seed, variants: args.variants, sound_design: args.soundDesign,
+      orchestral_percussion: args.orchestralPercussion, title: args.title, output_dir: args.out,
+      patch_paths: args.patchPaths, patch_roles: args.patchRoles }));
+    return;
+  }
+  if (cmd === 'design-sound') {
+    if (args.definition && args._.length) throw new Error('Indique une description ou --definition.');
+    const data = args.definition ? readJson(args.definition) : undefined;
+    const patch = data?.type === 'soundmcp-patch' ? data.patch : data;
+    display(await callTool('design_sound', { brief: args.definition ? undefined : args._.join(' '), patch,
+      title: args.title ?? data?.label, note: args.note, duration_seconds: args.dur, gate_seconds: args.gate, seed: args.seed, output_dir: args.out }));
+    return;
+  }
+  if (cmd === 'sounds') {
+    display(await callTool('list_sounds'));
+    return;
+  }
+  if (cmd === 'sound-preview') {
+    display(await callTool('preview_sounds', { sounds: args._.flatMap((word) => word.split(',').map((id) => id.trim())).filter(Boolean),
+      timbre: args.timbre, seed: args.seed, output_dir: args.out, patch_paths: args.patchPaths }));
+    return;
+  }
+  if (cmd === 'finish') {
+    display(await callTool('finish_music', { ...musicOptions, project_path: args._[0], cuts: args.cuts,
+      format: args.both ? 'both' : args.midi ? 'midi' : args.wav ? 'wav' : undefined }));
+    return;
+  }
+  if (cmd === 'preview') {
+    display(await callTool('preview_music', { project_paths: args._, section: args.section, region: args.loopRegion, max_seconds: args.dur,
+      blind: args.blind, seed: args.seed, output_dir: args.out }));
+    return;
+  }
+  if (cmd === 'analyze') {
+    const input = args._[0];
+    display(await callTool('analyze_music', typeof input !== 'string' || /\.wav$/i.test(input) ? { wav_path: input } : { project_path: input }));
+    return;
+  }
+
+  if (cmd === 'edit') {
+    const res = await callTool('edit_music', { ...musicOptions, project_path: args._[0],
+      edits: args.edits ? readJson(args.edits) : undefined, ending_variants: args.endings });
+    display(res);
+    return;
+  }
+
   if (cmd === 'music') {
     const style = args._[0];
     if (!style) {
@@ -118,22 +253,20 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    const format = args.both ? 'both' : args.midi ? 'midi' : 'wav';
     const res = await callTool('create_music', {
+      ...musicOptions,
       style,
       duration_seconds: args.dur,
       tempo: args.bpm,
       key: args.key,
       seed: args.seed,
       loop: args.loop,
-      format,
-      sampling_rate: args.sr,
-      mono: args.mono,
-      output_dir: args.out,
-      title: args.title,
+      sound_design: args.soundDesign,
+      orchestral_percussion: args.orchestralPercussion,
+      arrangement: args.arrangement ? readJson(args.arrangement) : undefined,
+      save_project: args.project,
     });
-    console.log(res.content[0].text);
-    if (args.json) console.log(JSON.stringify(res.structuredContent, null, 2));
+    display(res);
     return;
   }
 

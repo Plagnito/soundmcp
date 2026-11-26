@@ -8,7 +8,19 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 const { makeRng, hash32 } = require('./rng');
+const instrumentalVoices = require('./instrument-voices');
+const { planSampleLegato, renderSamples } = require('./sample-bank');
+const { musicClock } = require('./music-clock');
+const { COLORS, textureVoices } = require('./texture-voices');
+const { renderCustom } = require('./custom-synth');
+const { isCustom, supportsGesture } = require('./custom-patch');
+const { renderModal } = require('./modal-synth');
+const { renderWaveguide } = require('./waveguide-synth');
+const { performEvents } = require('./performance');
+const { applyRoom } = require('./virtual-room');
+const { applyBuilds } = require('./build-shaping');
 
 const SR = 44100;
 
@@ -19,11 +31,11 @@ const lpCoef = (hz, sr) => 1 - Math.exp((-2 * Math.PI * hz) / sr);
 
 /** enveloppe : attaque sinus, soutien, relâchement cosinus (zéro clic). */
 function envCurve(t, durSec, attack, release) {
-  if (t < attack) return Math.sin((t / attack) * (Math.PI / 2));
-  if (t < durSec) return 1;
+  if (t < durSec) return t < attack ? Math.sin((t / attack) * (Math.PI / 2)) : 1;
   if (t < durSec + release) {
     const tr = (t - durSec) / release;
-    return 0.5 + 0.5 * Math.cos(tr * Math.PI);
+    const level = durSec < attack ? Math.sin((durSec / attack) * (Math.PI / 2)) : 1;
+    return level * (0.5 + 0.5 * Math.cos(tr * Math.PI));
   }
   return 0;
 }
@@ -36,8 +48,35 @@ function softClip(x) {
 }
 
 const triWave = (p) => 4 * Math.abs(p - Math.floor(p) - 0.5) - 1;
-const sawWave = (p) => 2 * (p - Math.floor(p)) - 1;
-const pulseWave = (p, duty) => (p - Math.floor(p) < duty ? 1 : -1);
+
+/**
+ * PolyBLEP : lisse la discontinuité d'une dent de scie / impulsion.
+ * Sans ça, les oscillateurs naïfs replient les harmoniques (aliasing)
+ * et sonnent « verre cassé » dans les aigus. dt = fréquence / sr.
+ */
+function polyBlep(t, dt) {
+  if (dt <= 0) return 0;
+  if (t < dt) { t /= dt; return t + t - t * t - 1; }
+  if (t > 1 - dt) { t = (t - 1) / dt; return t * t + t + t + 1; }
+  return 0;
+}
+
+/** Dent de scie bande-limitée (PolyBLEP). */
+function blepSaw(p, dt) {
+  const t = p - Math.floor(p);
+  return 2 * t - 1 - polyBlep(t, dt);
+}
+
+/** Impulsion bande-limitée (PolyBLEP), duty 0..1. */
+function blepPulse(p, dt, duty = 0.5) {
+  const t = p - Math.floor(p);
+  let v = t < duty ? 1 : -1;
+  v += polyBlep(t, dt);
+  let t2 = t - duty;
+  if (t2 < 0) t2 += 1;
+  v -= polyBlep(t2, dt);
+  return v;
+}
 
 function panGains(pan) {
   const a = (pan + 1) * (Math.PI / 4);
@@ -61,7 +100,7 @@ class Comb {
     let w = x + this.store * this.fb;
     if (w > -1e-15 && w < 1e-15) w = 0; // anti-dénomormes
     this.buf[this.idx] = w;
-    this.idx = (this.idx + 1) % this.buf.length;
+    if (++this.idx === this.buf.length) this.idx = 0;
     return out;
   }
 }
@@ -76,28 +115,38 @@ class Allpass {
     const bufout = this.buf[this.idx];
     const out = -x + bufout;
     this.buf[this.idx] = x + bufout * this.fb;
-    this.idx = (this.idx + 1) % this.buf.length;
+    if (++this.idx === this.buf.length) this.idx = 0;
     return out;
   }
 }
 
-/** Réverbération Schroeder/freeverb-like, instance par canal. */
+/**
+ * Réverbération Schroeder/freeverb-like, instance par canal.
+ * Améliorations : pré-délai (clarté), 6 combs par canal avec des longueurs
+ * légèrement différentes à gauche/droite (vraie largeur stéréo), 3 allpass.
+ */
+const COMB_TUNINGS = [1116, 1188, 1277, 1356, 1422, 1491];
+const ALLPASS_TUNINGS = [556, 441, 341];
+
 class Reverb {
-  constructor(sr, room = 0.6, damp = 0.35, spread = 23) {
+  constructor(sr, room = 0.6, damp = 0.35, channel = 0) {
     const scale = sr / 44100;
-    const base = [1116, 1188, 1277, 1356];
     const fb = 0.7 + Math.min(0.95, Math.max(0.1, room)) * 0.28;
-    this.combs = base.map((n) => new Comb(n * scale, fb, damp));
-    this.allpasses = [556, 441].map((n) => new Allpass(n * scale, 0.5));
-    this.spread = spread;
+    const off = channel ? 23 : 0;
+    this.combs = COMB_TUNINGS.map((n, i) => new Comb((n + off + (i % 2) * 7) * scale, fb, damp));
+    this.allpasses = ALLPASS_TUNINGS.map((n) => new Allpass((n + off) * scale, 0.5));
+    this.predelay = new Float32Array(Math.max(2, Math.round((0.021 + channel * 0.004) * sr)));
+    this.pdIdx = 0;
+    this.wetScale = 4 / 6; // conserve le niveau de l'ancienne réverb à 4 combs
   }
-  process(x, channelOffset = 0) {
+  process(x) {
+    const pd = this.predelay[this.pdIdx];
+    this.predelay[this.pdIdx] = x;
+    if (++this.pdIdx === this.predelay.length) this.pdIdx = 0;
     let out = 0;
-    for (let i = 0; i < this.combs.length; i++) {
-      out += this.combs[i].process(x + channelOffset * this.spread * 0.0001);
-    }
+    for (let i = 0; i < this.combs.length; i++) out += this.combs[i].process(pd);
     for (let i = 0; i < this.allpasses.length; i++) out = this.allpasses[i].process(out);
-    return out;
+    return out * this.wetScale;
   }
 }
 
@@ -110,7 +159,7 @@ function applyPingPong(L, R, n, delaySec, fb, wet, sr, dampHz = 5500) {
   const a = lpCoef(dampHz, sr);
   let w = 0, lpL = 0, lpR = 0;
   for (let i = 0; i < n; i++) {
-    const r = (w - d + size) % size;
+    const r = w + 1 === size ? 0 : w + 1;
     const oL = bufL[r], oR = bufR[r];
     let fL = oR * fb, fR = oL * fb; // croisement = ping-pong
     lpL += a * (fL - lpL); fL = Math.abs(lpL) < 1e-14 ? 0 : lpL;
@@ -119,7 +168,7 @@ function applyPingPong(L, R, n, delaySec, fb, wet, sr, dampHz = 5500) {
     bufR[w] = R[i] + fR;
     L[i] += oL * wet;
     R[i] += oR * wet;
-    w = (w + 1) % size;
+    w = r;
   }
 }
 
@@ -135,35 +184,53 @@ function twoVoicePad(L, R, start, len, ev, sr, durSec, gain, o) {
   const [gcl, gcr] = panGains(ev.pan);
   const release = o.release;
   const lfoHz = o.lfoHz, lfoDepth = o.lfoDepth;
-  const lpA = lpCoef(o.lpHz, sr);
+  const lpBase = o.lpHz;
+  const lpMod = o.lpMod ?? 0.22;      // respiration du filtre
+  const width = o.width ?? 0.77;      // largeur stéréo (mid/side)
   const f0 = ev.freq;
   const vel = ev.vel;
   const detC = o.detune;
-  let lpL0 = 0, lpL1 = 0, lpR0 = 0, lpR1 = 0;
-  let ph0 = 0, ph1 = 0;
+  const fDet0 = f0 * Math.pow(2, -detC / 1200), fDet1 = f0 * Math.pow(2, detC / 1200);
+  const dt0 = fDet0 / sr, dt1 = fDet1 / sr;
   const oscMix = o.mix; // { sine, tri, saw, duty? }
+  let lpL0 = 0, lpR1 = 0;
+  let ph0 = 0, ph1 = 0;
+  let lpA = lpCoef(lpBase, sr);
   for (let i = 0; i < len; i++) {
     const idx = start + i;
     if (idx >= L.length) break;
     const t = i / sr;
     const e = envCurve(t, durSec, o.attack, release);
     if (e === 0 && t > durSec + release) break;
+    if ((i & 31) === 0) {
+      // le filtre s'ouvre et se referme lentement : la nappe « respire »
+      const cut = lpBase * (1 + lpMod * Math.sin(2 * Math.PI * lfoHz * 0.5 * t + 0.7));
+      lpA = lpCoef(cut, sr);
+    }
     const lfo = 1 + lfoDepth * Math.sin(2 * Math.PI * lfoHz * t + 1.3);
-    let s0, s1;
-    const fDet0 = f0 * Math.pow(2, -detC / 1200);
-    const fDet1 = f0 * Math.pow(2, detC / 1200);
-    ph0 += fDet0 / sr; ph1 += fDet1 / sr;
-    s0 = oscMix.sine * Math.sin(2 * Math.PI * ph0) + oscMix.tri * triWave(ph0) + oscMix.saw * sawWave(ph0);
-    s1 = oscMix.sine * Math.sin(2 * Math.PI * ph1) + oscMix.tri * triWave(ph1) + oscMix.saw * sawWave(ph1);
-    lpL0 += lpA * (s0 - lpL0); s0 = lpL0;
-    lpR1 += lpA * (s1 - lpR1); s1 = lpR1;
+    ph0 += dt0; ph1 += dt1;
+    const s0 = oscMix.sine * Math.sin(2 * Math.PI * ph0)
+      + oscMix.tri * triWave(ph0)
+      + oscMix.saw * blepSaw(ph0, dt0);
+    const s1 = oscMix.sine * Math.sin(2 * Math.PI * ph1)
+      + oscMix.tri * triWave(ph1)
+      + oscMix.saw * blepSaw(ph1, dt1);
+    lpL0 += lpA * (s0 - lpL0);
+    lpR1 += lpA * (s1 - lpR1);
+    // mid/side : élargit sans perdre le centre
+    const mid = 0.5 * (lpL0 + lpR1);
+    const side = 0.5 * (lpL0 - lpR1) * width;
+    const outL = mid + side;
+    const outR = mid - side;
     const g = e * lfo * gain * vel;
-    L[idx] += s0 * g * gcl;
-    R[idx] += s1 * g * gcr;
+    L[idx] += outL * g * gcl;
+    R[idx] += outR * g * gcr;
   }
 }
 
 const INSTRUMENTS = {
+  ...textureVoices,
+  ...instrumentalVoices,
   padwarm: { release: 1.5, gain: 0.5, fn: (L, R, s, l, ev, sr, d, g) =>
     twoVoicePad(L, R, s, l, ev, sr, d, g, { mix: { sine: 0.62, tri: 0.38, saw: 0 }, detune: 7, attack: 0.9, release: 1.5, lpHz: 2200, lfoHz: 0.13, lfoDepth: 0.07 }) },
 
@@ -179,8 +246,8 @@ const INSTRUMENTS = {
   strings: { release: 0.9, gain: 0.4, fn: (L, R, s, len, ev, sr, durSec, gain) => {
     const [gcl, gcr] = panGains(ev.pan);
     const f0 = ev.freq, vel = ev.vel;
-    const det = 11, vibDepth = 0.004, vibHz = 4.8;
-    const lpMin = 1000, lpMax = 2900;
+    const det = 11, vibDepth = 0.005, vibHz = 4.7;
+    const lpMin = 900 + 900 * vel, lpMax = 2600 + 1400 * vel;
     let ph0 = 0, ph1 = 0, lpL = 0, lpR = 0;
     for (let i = 0; i < len; i++) {
       const idx = s + i;
@@ -188,13 +255,14 @@ const INSTRUMENTS = {
       const t = i / sr;
       const e = envCurve(t, durSec, 0.55, 0.9);
       if (e === 0 && t > durSec + 0.9) break;
-      const vib = 1 + vibDepth * Math.sin(2 * Math.PI * vibHz * t) * Math.min(1, t / 0.3) * (ev.vib || 0.5);
+      const vib = 1 + vibDepth * Math.sin(2 * Math.PI * vibHz * t) * Math.min(1, t / 0.35) * (ev.vib || 0.5);
       const cut = lpMin + (lpMax - lpMin) * Math.min(1, t / 0.6);
       const lpA = lpCoef(cut, sr);
-      ph0 += (f0 * Math.pow(2, -det / 1200) * vib) / sr;
-      ph1 += (f0 * Math.pow(2, det / 1200) * vib) / sr;
-      let s0 = 0.75 * sawWave(ph0) + 0.25 * Math.sin(2 * Math.PI * ph0);
-      let s1 = 0.75 * sawWave(ph1) + 0.25 * Math.sin(2 * Math.PI * ph1);
+      const fA = f0 * Math.pow(2, -det / 1200) * vib;
+      const fB = f0 * Math.pow(2, det / 1200) * vib;
+      ph0 += fA / sr; ph1 += fB / sr;
+      let s0 = 0.7 * blepSaw(ph0, fA / sr) + 0.3 * Math.sin(2 * Math.PI * ph0);
+      let s1 = 0.7 * blepSaw(ph1, fB / sr) + 0.3 * Math.sin(2 * Math.PI * ph1);
       lpL += lpA * (s0 - lpL); s0 = lpL;
       lpR += lpA * (s1 - lpR); s1 = lpR;
       const g = e * gain * vel;
@@ -298,7 +366,8 @@ const INSTRUMENTS = {
   square: { release: 0.06, gain: 0.4, fn: (L, R, s, len, ev, sr, durSec, gain) => {
     const [gl, gr] = panGains(ev.pan);
     const f0 = ev.freq, vel = ev.vel;
-    const lpA = lpCoef(7000, sr);
+    const duty = ev.duty ?? 0.25;
+    const lpA = lpCoef(5200 + 3200 * vel, sr);
     let ph = 0, lp = 0;
     for (let i = 0; i < len; i++) {
       const idx = s + i;
@@ -308,7 +377,7 @@ const INSTRUMENTS = {
       e *= t < durSec ? 0.92 + 0.08 * Math.exp(-t / 0.05) : 0.5 + 0.5 * Math.cos(Math.min(1, (t - durSec) / 0.06) * Math.PI);
       if (t > durSec && e <= 0) break;
       ph += f0 / sr;
-      let v = pulseWave(ph, 0.25);
+      let v = blepPulse(ph, f0 / sr, duty);
       lp += lpA * (v - lp); v = lp;
       L[idx] += v * e * gain * vel * gl;
       R[idx] += v * e * gain * vel * gr;
@@ -326,44 +395,19 @@ const INSTRUMENTS = {
       const e = envCurve(t, durSec, 0.045, 0.28);
       if (e === 0 && t > durSec + 0.28) break;
       const vib = 1 + 0.006 * Math.sin(2 * Math.PI * 5.3 * t) * Math.min(1, t / 0.28) * (ev.vib || 0.5);
-      const cut = 900 + 2600 * Math.min(1, t / 0.18);
+      const cut = (700 + 1900 * vel) + (2600 + 1200 * vel) * Math.min(1, t / 0.18);
       const lpA = lpCoef(cut, sr);
-      ph0 += (f0 * Math.pow(2, -6 / 1200) * vib) / sr;
-      ph1 += (f0 * Math.pow(2, 6 / 1200) * vib) / sr;
+      const fA = f0 * Math.pow(2, -6 / 1200) * vib;
+      const fB = f0 * Math.pow(2, 6 / 1200) * vib;
+      ph0 += fA / sr; ph1 += fB / sr;
       subPh += f0 / sr;
-      let s0 = sawWave(ph0), s1 = sawWave(ph1);
+      let s0 = blepSaw(ph0, fA / sr), s1 = blepSaw(ph1, fB / sr);
       lpL += lpA * (s0 - lpL); s0 = lpL;
       lpR += lpA * (s1 - lpR); s1 = lpR;
-      const body = 0.3 * Math.sin(2 * Math.PI * subPh);
+      const body = 0.28 * Math.sin(2 * Math.PI * subPh);
       const g = e * gain * vel;
       L[idx] += (s0 + body) * g * gl;
       R[idx] += (s1 + body) * g * gr;
-    }
-  } },
-
-  piano: { release: 0.3, gain: 0.45, fn: (L, R, s, len, ev, sr, durSec, gain) => {
-    const [gl, gr] = panGains(ev.pan);
-    const f = ev.freq, vel = ev.vel;
-    const lpA = lpCoef(3800, sr);
-    let ph0 = 0, ph1 = 0, ps = 0, p2 = 0, lpL = 0, lpR = 0;
-    for (let i = 0; i < len; i++) {
-      const idx = s + i;
-      if (idx >= L.length) break;
-      const t = i / sr;
-      let e = Math.min(1, t / 0.004) * (0.25 + 0.75 * Math.exp(-t / 1.3));
-      if (t > durSec) e *= 0.5 + 0.5 * Math.cos(Math.min(1, (t - durSec) / 0.3) * Math.PI);
-      if (t > durSec && e <= 0.001) break;
-      ph0 += (f * Math.pow(2, 3 / 1200)) / sr;
-      ph1 += (f * Math.pow(2, -3 / 1200)) / sr;
-      ps += f / sr; p2 += 2 * f / sr;
-      let v0 = 0.5 * triWave(ph0) + 0.3 * Math.sin(2 * Math.PI * ps) + 0.2 * triWave(ph1);
-      let v1 = 0.5 * triWave(ph1) + 0.3 * Math.sin(2 * Math.PI * ps) + 0.2 * triWave(ph0);
-      const h2 = 0.15 * Math.exp(-t / 0.22) * Math.sin(2 * Math.PI * p2);
-      lpL += lpA * (v0 - lpL); v0 = lpL + h2;
-      lpR += lpA * (v1 - lpR); v1 = lpR + h2;
-      const g = e * gain * vel;
-      L[idx] += v0 * g * gl;
-      R[idx] += v1 * g * gr;
     }
   } },
 
@@ -400,7 +444,7 @@ const INSTRUMENTS = {
       if (t > durSec) e *= 0.5 + 0.5 * Math.cos(Math.min(1, (t - durSec) / 0.05) * Math.PI);
       if (t > durSec && e <= 0) break;
       ph += f / sr;
-      let v = pulseWave(ph, 0.5);
+      let v = blepPulse(ph, f / sr, 0.5);
       lp += lpA * (v - lp); v = lp;
       L[idx] += v * e * gain * vel * gl;
       R[idx] += v * e * gain * vel * gr;
@@ -461,12 +505,16 @@ function drumNoise(seedIdx, len, warm = 0) {
 
 function drumEvent(L, R, s, len, ev, sr, kind) {
   const [gl, gr] = panGains(ev.pan || 0);
-  const vel = ev.vel;
+  const vel = ev.vel * (ev.gain ?? 1) * (ev.articulation === 'ghost' ? 0.72 : 1);
+  const acoustic = ev.kit === 'acoustic';
+  const tune = 1 + 0.045 * ((ev.seedIdx >>> 0) / 4294967295 - 0.5);
+  const envelope = (i, end) => Math.min(1, i / (sr * 0.00035), (end - i) / (sr * 0.011));
   const put = (i, v) => {
     const idx = s + i;
     if (idx >= 0 && idx < L.length) {
-      L[idx] += v * gl;
-      R[idx] += v * gr;
+      const value = v * envelope(i, len);
+      L[idx] += value * gl;
+      R[idx] += value * gr;
     }
   };
 
@@ -476,20 +524,20 @@ function drumEvent(L, R, s, len, ev, sr, kind) {
     let ph = 0;
     for (let i = 0; i < lenN; i++) {
       const t = i / sr;
-      const f = 46 + 118 * Math.exp(-t / 0.028);
+      const f = (acoustic ? 54 + 92 * Math.exp(-t / 0.021) : 46 + 118 * Math.exp(-t / 0.028)) * tune;
       ph += f / sr;
-      let amp = Math.min(1, t / 0.0015) * Math.exp(-t / 0.18);
-      let click = noise[Math.min(i, noise.length - 1)] * Math.exp(-t / 0.004) * 0.3;
-      const v = Math.tanh((Math.sin(2 * Math.PI * ph) * amp + click) * 1.6) * 0.85 * vel;
-      put(i, v);
+      const amp = Math.min(1, t / 0.0015) * Math.exp(-t / (acoustic ? 0.075 : 0.14));
+      const click = i < noise.length ? noise[i] * Math.exp(-t / 0.003) * (0.15 + vel * 0.22) : 0;
+      const beater = acoustic ? 0.21 * Math.sin(2 * Math.PI * 145 * t) * Math.exp(-t / 0.028) : 0;
+      const v = Math.tanh((Math.sin(2 * Math.PI * ph) * amp + click + beater) * 1.55) * 0.81 * vel;
+      put(i, v * envelope(i, lenN));
     }
   } else if (kind === 'snare') {
     const lenN = Math.min(len, Math.round(0.3 * sr));
     const noise = drumNoise(ev.seedIdx || 2, lenN);
     // passe-bande approx : passe-bas puis passe-haut
-    const aLP = lpCoef(3200, sr), aHP = lpCoef(1400, sr);
+    const aLP = lpCoef((acoustic ? 4900 : 3200) + 950 * vel, sr), aHP = lpCoef(1250, sr);
     let lpS = 0, hpS = 0;
-    let pb = 0;
     for (let i = 0; i < lenN; i++) {
       const t = i / sr;
       const n = noise[i];
@@ -497,23 +545,40 @@ function drumEvent(L, R, s, len, ev, sr, kind) {
       hpS += aHP * (lpS - hpS);       // retire sous 1.4k
       const nz = lpS - hpS;
       const env = Math.exp(-t / 0.085) * Math.min(1, t / 0.0008);
-      const body = 0.45 * Math.exp(-t / 0.05) * Math.sin(2 * Math.PI * 185 * (t + pb));
-      put(i, (nz * env + body * env) * 0.6 * vel);
+      const shell = Math.sin(2 * Math.PI * 185 * tune * t) + 0.35 * Math.sin(2 * Math.PI * 317 * tune * t);
+      const body = (acoustic ? 0.58 : 0.38) * Math.exp(-t / 0.051) * shell;
+      put(i, (nz * env * (acoustic ? 1.28 : 1) + body * env) * 0.62 * vel * envelope(i, lenN));
     }
   } else if (kind === 'hat' || kind === 'ohat') {
     const dur = kind === 'ohat' ? 0.24 : 0.032;
     const lenN = Math.min(len, Math.round((dur + 0.06) * sr));
     const noise = drumNoise(ev.seedIdx || 3, lenN);
-    const a1 = lpCoef(7200, sr), a2 = lpCoef(7200, sr);
+    const a1 = lpCoef(acoustic ? 4900 : 6500, sr), a2 = a1;
+    const cutoff = lpCoef(10500, sr);
     let h1 = 0, h2 = 0, l1 = 0;
     for (let i = 0; i < lenN; i++) {
       const t = i / sr;
       const n = noise[i];
       h1 += a1 * (n - h1); const hp1 = n - h1;
       h2 += a2 * (hp1 - h2); const hp2 = hp1 - h2;
-      l1 += lpCoef(9000, sr) * (hp2 - l1);
+      l1 += cutoff * (hp2 - l1);
       const env = Math.exp(-t / dur) * Math.min(1, t / 0.0006);
-      put(i, l1 * env * 0.5 * vel);
+      put(i, l1 * env * 0.53 * vel * envelope(i, lenN));
+    }
+  } else if (kind === 'crash' || kind === 'ride') {
+    const crash = kind === 'crash';
+    const rng = makeRng(ev.seedIdx);
+    const high = lpCoef(Math.min(10500, sr * 0.42), sr), low = lpCoef(crash ? 2800 : 1750, sr);
+    const frequencies = [813, 1459, 2073, 2975, 4111, 5687].map((hz) => hz * tune * rng.f(0.985, 1.015));
+    let a = 0, b = 0;
+    for (let i = 0; i < len; i++) {
+      const t = i / sr;
+      a += high * (rng.f(-1, 1) - a);
+      b += low * (a - b);
+      let metal = 0;
+      for (const hz of frequencies) metal += Math.sin(2 * Math.PI * hz * t) * Math.exp(-t * (3.1 + hz / 2700));
+      const wash = (a - b) * Math.exp(-t / (crash ? 0.25 : 0.105));
+      put(i, (wash * (crash ? 0.5 : 0.22) + metal * 0.055) * vel);
     }
   } else if (kind === 'clap') {
     const lenN = Math.min(len, Math.round(0.35 * sr));
@@ -529,7 +594,7 @@ function drumEvent(L, R, s, len, ev, sr, kind) {
         + 0.8 * Math.exp(-Math.abs(t - 0.011) / 0.005)
         + 0.7 * Math.exp(-Math.abs(t - 0.022) / 0.005)
         + (t > 0.022 ? 0.5 * Math.exp(-(t - 0.022) / 0.11) : 0);
-      put(i, nz * env * 0.5 * vel);
+      put(i, nz * env * 0.5 * vel * envelope(i, lenN));
     }
   } else if (kind === 'shaker') {
     const lenN = Math.min(len, Math.round(0.12 * sr));
@@ -540,7 +605,7 @@ function drumEvent(L, R, s, len, ev, sr, kind) {
       const t = i / sr;
       h += a1 * (noise[i] - h);
       const env = Math.min(1, t / 0.008) * Math.exp(-t / 0.045);
-      put(i, (noise[i] - h) * env * 0.4 * vel);
+      put(i, (noise[i] - h) * env * 0.4 * vel * envelope(i, lenN));
     }
   } else if (kind === 'tom') {
     const lenN = Math.min(len, Math.round(0.45 * sr));
@@ -550,32 +615,83 @@ function drumEvent(L, R, s, len, ev, sr, kind) {
       const f = 78 + 34 * Math.exp(-t / 0.06);
       ph += f / sr;
       const env = Math.min(1, t / 0.002) * Math.exp(-t / 0.25);
-      put(i, Math.sin(2 * Math.PI * ph) * env * 0.6 * vel);
+      put(i, Math.sin(2 * Math.PI * ph) * env * 0.6 * vel * envelope(i, lenN));
     }
   }
 }
 
 /* ---------------------------------- rendu complet ---------------------------------- */
 
+// Une liaison ne rejoint qu'une voix monodique du même instrument.
+function linkedVoices(events, sr) {
+  const sort = [...events].sort((a, b) => a.start - b.start);
+  const voices = [];
+  let previous;
+  for (const [i, note] of sort.entries()) {
+    const before = sort[i - 1], after = sort[i + 1];
+    const solo = before?.start !== note.start && after?.start !== note.start;
+    const gap = before ? (note.start - before.start) / sr - before.duration : Infinity;
+    const { articulation, inst, bus } = note.event;
+    if (solo && previous && note.patch && (articulation === 'legato' || articulation === 'slide') &&
+        inst === before.event.inst && bus === before.event.bus && gap <= 0.14 && gap >= -0.38) {
+      previous.push(note);
+      continue;
+    }
+    const voice = [note];
+    voices.push(voice);
+    previous = solo ? voice : undefined;
+  }
+  return voices;
+}
+
 /**
  * Rendu d'une liste d'événements dans des buffers (signal sec).
  * Utilisé par renderSong et par les outils de débogage.
  */
-function renderEventsInto(evs, L, R, sr, spb) {
+function renderEventsInto(evs, L, R, sr, spb, palette = 'synth', clock, bankVersion = 1, patches) {
   const totalSamples = L.length;
+  const ordered = evs.some((ev) => supportsGesture(patches?.[ev.inst])) ? [] : null;
+  const notes = [];
   for (const ev of evs) {
-    const start = Math.max(0, Math.round(ev.t * spb * sr));
+    const time = clock ? clock.at(ev.t) : ev.t * spb;
+    const start = Math.max(0, Math.round(time * sr));
     if (start >= totalSamples) continue;
+    const duration = clock ? clock.at(ev.t + ev.dur) - time : ev.dur * spb;
+    const durSec = duration * (ev.articulation === 'staccato' ? 0.57 : 1);
+    notes.push({ event: ev, start, duration: durSec });
+  }
+  const joins = palette === 'studio' ? planSampleLegato(notes, sr, bankVersion) : null;
+  for (const note of notes) {
+    const { event: ev, start, duration: durSec } = note;
+    if (isCustom(ev.inst)) {
+      const patch = patches?.[ev.inst];
+      if (!patch) throw new Error(`Son personnel absent du projet : ${ev.inst}.`);
+      if (supportsGesture(patch)) ordered.push({ ...note, patch });
+      else {
+        renderCustom(L, R, start, ev, sr, durSec, patch);
+        ordered?.push(note);
+      }
+      continue;
+    }
+    ordered?.push(note);
+    if (joins && renderSamples(L, R, start, ev, sr, durSec, ev.take ?? 0, ev.bankVersion ?? bankVersion, joins.get(note))) continue;
     if (ev.bus === 'drum') {
-      const len = Math.min(Math.round(0.5 * sr), totalSamples - start);
+      const seconds = ev.drum === 'crash' ? 1.25 : ev.drum === 'ride' ? 0.47 : 0.5;
+      const len = Math.min(Math.round(seconds * sr), totalSamples - start);
       drumEvent(L, R, start, len, ev, sr, ev.drum);
     } else {
       const inst = INSTRUMENTS[ev.inst];
-      if (!inst) continue;
-      const durSec = ev.dur * spb;
+      if (!inst) throw new Error(`Instrument inconnu : ${ev.inst}.`);
       const len = Math.min(Math.round((durSec + inst.release) * sr) + 64, totalSamples - start);
       const gain = (ev.gain ?? 1) * inst.gain;
-      try { inst.fn(L, R, start, len, ev, sr, durSec, gain); } catch { /* robustesse */ }
+      inst.fn(L, R, start, len, ev, sr, durSec, gain);
+    }
+  }
+  if (ordered) {
+    for (const voice of linkedVoices(ordered, sr)) {
+      const patch = voice[0].patch;
+      if (patch?.modal) renderModal(L, R, voice, sr, patch.modal);
+      if (patch?.waveguide) renderWaveguide(L, R, voice, sr, patch.waveguide);
     }
   }
 }
@@ -586,64 +702,136 @@ function renderEventsInto(evs, L, R, sr, spb) {
  * song: { events, bpm, totalBeats, loop, fx }
  * retourne { L, R, sr, samples }
  */
-function renderSong(song) {
+const BUS_MIX = {
+  pad: { gain: 1, highPass: 135 },
+  arp: { gain: 0.94, highPass: 90 },
+  mel: { gain: 0.93, highPass: 80 },
+  counter: { gain: 0.67, highPass: 110 },
+  texture: { gain: 0.92, highPass: 43 },
+  bass: { gain: 0.76, highPass: 25 },
+  drum: { gain: 0.82, highPass: 29 },
+};
+
+function renderSong(song, onStem) {
   const sr = song.sr || SR;
   const spb = 60 / song.bpm;
-  const musicSamples = Math.round(song.totalBeats * spb * sr);
+  const clock = musicClock(song);
+  const musicSamples = Math.round(clock.seconds * sr);
   const loop = !!song.loop;
-  const loopSamples = loop ? musicSamples : null;
-  const tailSamples = Math.round((loop ? 3.2 : 2.6) * sr);
-  const totalSamples = (loop ? loopSamples : musicSamples) + tailSamples;
+  const tailSamples = loop || song.targetSeconds === undefined ? Math.round((loop ? 4.1 : 2.6) * sr)
+    : Math.max(0, Math.round(song.targetSeconds * sr) - musicSamples);
+  const totalSamples = musicSamples + tailSamples;
+  const samples = loop ? musicSamples : totalSamples;
+  const stereo = !song.mono;
 
-  const masterL = new Float32Array(totalSamples);
-  const masterR = new Float32Array(totalSamples);
+  const masterL = new Float32Array(samples);
+  const masterR = new Float32Array(samples);
+  const busL = new Float32Array(totalSamples);
+  const busR = new Float32Array(totalSamples);
+  const fx = song.fx || {};
+  const events = performEvents(song, clock);
+  const endFade = Math.min(samples, Math.round((song.endFade || 0) * sr));
+  const colors = (song.meta?.sections ?? []).map((s) => ({ start: Math.round(clock.at((s.startBar - 1) * 4) * sr),
+    ...COLORS[s.color ?? 'natural'] }));
+  const colored = colors.some((color) => color.mix > 0 || color.width !== 1);
 
-  const buses = ['pad', 'arp', 'mel', 'bass', 'drum'];
-  for (const bus of buses) {
-    const evs = song.events.filter((e) => e.bus === bus);
+  for (const [bus, mix] of Object.entries(BUS_MIX)) {
+    const evs = events.filter((e) => e.bus === bus);
     if (!evs.length) continue;
-    const busL = new Float32Array(totalSamples);
-    const busR = new Float32Array(totalSamples);
+    busL.fill(0);
+    busR.fill(0);
+    renderEventsInto(evs, busL, busR, sr, spb, song.palette, clock.changes.length ? clock : undefined, song.bankVersion, song.patches);
 
-    renderEventsInto(evs, busL, busR, sr, spb);
-
-    const fx = song.fx || {};
+    const hp = lpCoef(mix.highPass, sr);
+    let lowL = 0, lowR = 0;
+    for (let i = 0; i < totalSamples; i++) {
+      lowL += hp * (busL[i] - lowL);
+      lowR += hp * (busR[i] - lowR);
+      busL[i] = (busL[i] - lowL) * mix.gain;
+      busR[i] = (busR[i] - lowR) * mix.gain;
+    }
+    applyBuilds(busL, busR, bus, song.builds, clock, sr, loop);
     const delayWet = (fx.delay && fx.delay[bus]) || 0;
     if (delayWet > 0.01 && fx.delayBeats) {
       const delaySec = fx.delayBeats * spb;
       applyPingPong(busL, busR, totalSamples, delaySec, fx.delayFb ?? 0.3, delayWet, sr);
     }
-    const wet = (fx.wet && fx.wet[bus]) || 0;
-    if (wet > 0.01) {
+    const wet = (fx.wet && fx.wet[bus]) || (bus === 'counter' ? 0.17 : bus === 'texture' ? 0.22 : 0);
+    if (song.room?.amount) applyRoom(busL, busR, sr, bus, song.room, Reverb);
+    else if (wet > 0.01) {
       const revL = new Reverb(sr, fx.room ?? 0.6, fx.damp ?? 0.35, 0);
       const revR = new Reverb(sr, fx.room ?? 0.6, fx.damp ?? 0.35, 1);
+      const send = lpCoef(180, sr);
+      let sendL = 0, sendR = 0;
       for (let i = 0; i < totalSamples; i++) {
-        const l = revL.process(busL[i]);
-        const r = revR.process(busR[i]);
-        busL[i] += l * wet;
-        busR[i] += r * wet;
+        sendL += send * (busL[i] - sendL);
+        sendR += send * (busR[i] - sendR);
+        const inL = busL[i] - sendL, inR = busR[i] - sendR;
+        const l = revL.process(inL * 0.84 + inR * 0.16);
+        const r = revR.process(inR * 0.84 + inL * 0.16);
+        // Le retour reste sous le signal direct, même sur une note proche d’un mode de la pièce.
+        busL[i] += (l * 0.23 + r * 0.05) * wet;
+        busR[i] += (r * 0.23 + l * 0.05) * wet;
       }
     }
+    if (colored) applySectionColors(busL, busR, colors, sr, loop ? musicSamples : 0);
 
-    for (let i = 0; i < totalSamples; i++) {
+    // Pour les boucles très courtes, les retours peuvent occuper plusieurs tours.
+    if (loop) {
+      const taper = sr * 0.35;
+      for (let i = musicSamples; i < totalSamples; i++) {
+        const gain = Math.min(1, (totalSamples - 1 - i) / taper);
+        const target = i % musicSamples;
+        busL[target] += busL[i] * gain;
+        busR[target] += busR[i] * gain;
+      }
+    }
+    if (endFade) fadeEnd(busL, busR, samples, endFade);
+    if (!stereo) toMono({ L: busL.subarray(0, samples), R: busR.subarray(0, samples) });
+    for (let i = 0; i < samples; i++) {
       masterL[i] += busL[i];
       masterR[i] += busR[i];
     }
+    if (onStem) onStem(bus, busL.subarray(0, samples), busR.subarray(0, samples), sr, !stereo);
   }
 
-  // repli de boucle : la queue (réverb/délai/relâchements) revient au début
-  if (loop) {
-    for (let i = 0; i < tailSamples; i++) {
-      masterL[i] += masterL[loopSamples + i];
-      masterR[i] += masterR[loopSamples + i];
+  const out = masterOutput(masterL, masterR, samples, sr, 0, loop);
+  return { ...out, mono: !stereo, metrics: measureAudio(out) };
+}
+
+function applySectionColors(L, R, colors, sr, loopLength) {
+  const smooth = 1 - Math.exp(-1 / (0.052 * sr));
+  const targets = colors.map((c) => ({ ...c, hp: lpCoef(c.low, sr), lp: lpCoef(Math.min(c.high, sr * 0.43), sr) }));
+  const preRoll = Math.min(loopLength, Math.round(sr * 0.35));
+  const state = { ...(preRoll ? targets.at(-1) : targets[0]) };
+  let section = 0;
+  let lowL = 0, lowR = 0, filteredL = 0, filteredR = 0;
+  for (let i = -preRoll; i < L.length; i++) {
+    if (section + 1 < targets.length && i >= targets[section + 1].start) section++;
+    const goal = i < 0 ? targets.at(-1) : targets[section];
+    state.hp += smooth * (goal.hp - state.hp);
+    state.lp += smooth * (goal.lp - state.lp);
+    state.mix += smooth * (goal.mix - state.mix);
+    state.width += smooth * (goal.width - state.width);
+    state.drive += smooth * (goal.drive - state.drive);
+    const index = i < 0 ? loopLength + i : i;
+    const l = L[index], r = R[index];
+    lowL += state.hp * (l - lowL);
+    lowR += state.hp * (r - lowR);
+    filteredL += state.lp * (l - lowL - filteredL);
+    filteredR += state.lp * (r - lowR - filteredR);
+    if (i < 0) continue;
+    let a = l + (filteredL - l) * state.mix, b = r + (filteredR - r) * state.mix;
+    if (state.drive > 0.00005) {
+      const amount = 1 + state.drive * 5;
+      const scale = 1 / Math.tanh(amount);
+      a += state.drive * (Math.tanh(a * amount) * scale - a);
+      b += state.drive * (Math.tanh(b * amount) * scale - b);
     }
-    const out = masterOutput(masterL, masterR, loopSamples, sr, song.endFade || 0);
-    out.mono = !!song.mono;
-    return song.mono ? toMono(out) : out;
+    const mid = (a + b) * 0.5, side = (a - b) * 0.5 * state.width;
+    L[i] = mid + side;
+    R[i] = mid - side;
   }
-  const out = masterOutput(masterL, masterR, musicSamples + tailSamples, sr, song.endFade || 0);
-  out.mono = !!song.mono;
-  return song.mono ? toMono(out) : out;
 }
 
 /** Convertit un rendu stéréo { L, R } en mono (moyenne des canaux, in-place). */
@@ -657,88 +845,189 @@ function toMono(out) {
   return out;
 }
 
-/** passe-bas HP global + écrêtage doux + normalisation, éventuel fondu de fin. */
-function masterOutput(L, R, n, sr, endFadeSec) {
-  const a = lpCoef(32, sr);
+function fadeEnd(L, R, n, length) {
+  for (let i = 0; i < length; i++) {
+    const gain = 0.5 + 0.5 * Math.cos(i * Math.PI / Math.max(1, length - 1));
+    L[n - length + i] *= gain;
+    R[n - length + i] *= gain;
+  }
+}
+
+/** Passe-haut, égalisation, compression stéréo liée et plafond de crête. */
+function masterOutput(L, R, n, sr, endFadeSec, loop = null) {
+  const music = loop !== null;
+  const lead = loop ? Math.min(n, Math.round(1.8 * sr)) : 0;
+  // 1) passe-haut : retire le rumble inaudible qui mange la headroom
+  const a = lpCoef(music ? 22 : 32, sr);
   let lpL = 0, lpR = 0;
+  for (let i = n - lead; i < n; i++) {
+    lpL += a * (L[i] - lpL);
+    lpR += a * (R[i] - lpR);
+  }
   for (let i = 0; i < n; i++) {
     lpL += a * (L[i] - lpL); L[i] -= lpL;
     lpR += a * (R[i] - lpR); R[i] -= lpR;
   }
-  if (endFadeSec > 0) {
-    const fadeN = Math.min(n, Math.round(endFadeSec * sr));
-    for (let i = 0; i < fadeN; i++) {
-      const g = 0.5 + 0.5 * Math.cos((i / fadeN) * Math.PI);
-      L[n - fadeN + i] *= g;
-      R[n - fadeN + i] *= g;
-    }
+
+  // 2) tilt EQ : léger creux sous 120 Hz, léger air au-dessus de 6 kHz
+  const aLow = lpCoef(120, sr);
+  const aHigh = lpCoef(6000, sr);
+  const air = music ? 0.08 : 0.16, lowCut = music ? 0.06 : 0.10;
+  let lowL = 0, lowR = 0, highL = 0, highR = 0;
+  for (let i = n - lead; i < n; i++) {
+    lowL += aLow * (L[i] - lowL);
+    lowR += aLow * (R[i] - lowR);
+    highL += aHigh * (L[i] - highL);
+    highR += aHigh * (R[i] - highR);
   }
+  for (let i = 0; i < n; i++) {
+    lowL += aLow * (L[i] - lowL);
+    lowR += aLow * (R[i] - lowR);
+    highL += aHigh * (L[i] - highL);
+    highR += aHigh * (R[i] - highR);
+    L[i] += air * (L[i] - highL) - lowCut * lowL;
+    R[i] += air * (R[i] - highR) - lowCut * lowR;
+  }
+
+  // 3) colle de bus : compresseur doux (2.2:1) pour souder les pistes
+  const th = music ? 0.24 : 0.22, ratio = music ? 1.8 : 2.2, makeup = music ? 1.15 : 1.22;
+  const atk = 1 - Math.exp(-1 / (0.025 * sr));
+  const rel = 1 - Math.exp(-1 / (0.22 * sr));
+  let env = 0;
+  for (let i = n - lead; i < n; i++) {
+    const peak = Math.max(Math.abs(L[i]), Math.abs(R[i]));
+    env += (peak > env ? atk : rel) * (peak - env);
+  }
+  for (let i = 0; i < n; i++) {
+    const peak = Math.max(Math.abs(L[i]), Math.abs(R[i]));
+    env += (peak > env ? atk : rel) * (peak - env);
+    const over = env / th;
+    const gr = over > 1 ? Math.pow(over, 1 / ratio - 1) : 1;
+    const g = gr * makeup;
+    L[i] *= g;
+    R[i] *= g;
+  }
+
+  if (endFadeSec > 0) fadeEnd(L, R, n, Math.min(n, Math.round(endFadeSec * sr)));
   for (let i = 0; i < n; i++) {
     L[i] = softClip(L[i]);
     R[i] = softClip(R[i]);
   }
-  let peak = 0;
+  // 4) normalisation vers une loudness cible (RMS) avec plafond de crête :
+  //    évite qu'une nappe continue finisse deux fois plus forte qu'un morceau percussif.
+  let peak = 0, sumSq = 0;
   for (let i = 0; i < n; i++) {
     const p = Math.max(Math.abs(L[i]), Math.abs(R[i]));
     if (p > peak) peak = p;
+    sumSq += 0.5 * (L[i] * L[i] + R[i] * R[i]);
   }
-  if (peak > 1e-6) {
-    const g = 0.95 / peak;
+  const rms = Math.sqrt(sumSq / Math.max(1, n));
+  if (peak > 1e-6 && rms > 1e-6) {
+    const g = Math.min((music ? 0.89 : 0.95) / peak, (music ? 0.155 : 0.16) / rms);
     for (let i = 0; i < n; i++) { L[i] *= g; R[i] *= g; }
   }
   return { L: L.subarray(0, n), R: R.subarray(0, n), sr, samples: n };
 }
 
-/* ---------------------------------- WAV ---------------------------------- */
-
-/** Écrit un WAV PCM 16 bits (stéréo, ou mono si `mono` : 1 canal, taille moitié). */
-function writeWav(filePath, L, R, sr = SR, mono = false) {
-  const n = mono ? L.length : Math.min(L.length, R.length);
-  const blockAlign = mono ? 2 : 4;
-  const dataSize = n * blockAlign;
-  const buf = Buffer.alloc(44 + dataSize);
-  buf.write('RIFF', 0, 'ascii');
-  buf.writeUInt32LE(36 + dataSize, 4);
-  buf.write('WAVE', 8, 'ascii');
-  buf.write('fmt ', 12, 'ascii');
-  buf.writeUInt32LE(16, 16);
-  buf.writeUInt16LE(1, 20);        // PCM
-  buf.writeUInt16LE(mono ? 1 : 2, 22); // canaux
-  buf.writeUInt32LE(sr, 24);
-  buf.writeUInt32LE(sr * blockAlign, 28); // byte rate
-  buf.writeUInt16LE(blockAlign, 32);      // block align
-  buf.writeUInt16LE(16, 34);       // bits
-  buf.write('data', 36, 'ascii');
-  buf.writeUInt32LE(dataSize, 40);
-  for (let i = 0; i < n; i++) {
-    const l = Math.max(-1, Math.min(1, L[i]));
-    buf.writeInt16LE(Math.round(l * 32767), 44 + i * blockAlign);
-    if (!mono) {
-      const r = Math.max(-1, Math.min(1, R[i]));
-      buf.writeInt16LE(Math.round(r * 32767), 46 + i * blockAlign);
-    }
+function measureAudio({ L, R, samples }) {
+  let peak = 0, energyL = 0, energyR = 0, cross = 0;
+  for (let i = 0; i < samples; i++) {
+    const l = L[i], r = R[i];
+    peak = Math.max(peak, Math.abs(l), Math.abs(r));
+    energyL += l * l;
+    energyR += r * r;
+    cross += l * r;
   }
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, buf);
-  return { bytes: buf.length, samples: n, sr };
+  const rms = Math.sqrt((energyL + energyR) / (2 * samples));
+  const db = (amplitude) => amplitude > 0 ? Number((20 * Math.log10(amplitude)).toFixed(2)) : null;
+  const correlation = energyL > 0 && energyR > 0 ? Number((cross / Math.sqrt(energyL * energyR)).toFixed(3)) : null;
+  return { peakDbfs: db(peak), rmsDbfs: db(rms), crestDb: rms > 0 ? db(peak / rms) : null, stereoCorrelation: correlation };
 }
 
-/** Infos rapides d'un WAV écrit (pour tests). */
+/* ---------------------------------- WAV ---------------------------------- */
+
+/** WAV PCM 16/24 bits ou IEEE Float 32 bits pour les pistes séparées. */
+function writeWav(filePath, L, R, sr = SR, mono = false, bits = 16) {
+  if (![16, 24, 32].includes(bits)) throw new Error(`Profondeur WAV invalide : ${bits}.`);
+  const float = bits === 32;
+  const channels = mono ? 1 : 2;
+  const n = mono ? L.length : Math.min(L.length, R.length);
+  const bytesPerSample = bits / 8;
+  const blockAlign = channels * bytesPerSample;
+  const dataSize = n * blockAlign;
+  const pad = dataSize % 2;
+  const header = Buffer.alloc(float ? 58 : 44);
+  const bytes = header.length + dataSize + pad;
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(bytes - 8, 4);
+  header.write('WAVEfmt ', 8, 'ascii');
+  header.writeUInt32LE(float ? 18 : 16, 16);
+  header.writeUInt16LE(float ? 3 : 1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sr, 24);
+  header.writeUInt32LE(sr * blockAlign, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bits, 34);
+  if (float) {
+    header.write('fact', 38, 'ascii');
+    header.writeUInt32LE(4, 42);
+    header.writeUInt32LE(n, 46);
+  }
+  header.write('data', header.length - 8, 'ascii');
+  header.writeUInt32LE(dataSize, header.length - 4);
+
+  const blockFrames = 16384;
+  const buf = Buffer.allocUnsafe(blockFrames * blockAlign);
+  const max = 2 ** (bits - 1) - 1;
+  const writeSample = float
+    ? (value, pos) => buf.writeFloatLE(value, pos)
+    : (value, pos) => buf.writeIntLE(Math.round(Math.max(-1, Math.min(1, value)) * max), pos, bytesPerSample);
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = path.join(path.dirname(filePath), `.${randomUUID()}.wav.tmp`);
+  const fd = fs.openSync(tempPath, 'wx');
+  try {
+    try {
+      fs.writeFileSync(fd, header);
+      for (let frame = 0; frame < n; frame += blockFrames) {
+        const length = Math.min(n - frame, blockFrames);
+        for (let i = 0; i < length; i++) {
+          const pos = i * blockAlign;
+          writeSample(L[frame + i], pos);
+          if (!mono) writeSample(R[frame + i], pos + bytesPerSample);
+        }
+        fs.writeFileSync(fd, buf.subarray(0, length * blockAlign));
+      }
+      if (pad) fs.writeFileSync(fd, Buffer.alloc(1));
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tempPath, filePath);
+  } finally {
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+  }
+  return { bytes, samples: n, sr, channels, bits, encoding: float ? 'float' : 'pcm' };
+}
+
+/** Infos rapides des fichiers WAV écrits par SoundMCP. */
 function readWavInfo(filePath) {
   const fd = fs.openSync(filePath, 'r');
-  const head = Buffer.alloc(44);
-  fs.readSync(fd, head, 0, 44, 0);
-  fs.closeSync(fd);
-  const stat = fs.statSync(filePath);
-  return {
-    riff: head.toString('ascii', 0, 4),
-    channels: head.readUInt16LE(22),
-    sr: head.readUInt32LE(24),
-    bits: head.readUInt16LE(34),
-    dataSize: head.readUInt32LE(40),
-    bytes: stat.size,
-    duration: head.readUInt32LE(40) / (head.readUInt32LE(24) * head.readUInt16LE(22) * 2),
-  };
+  const header = Buffer.alloc(58);
+  try {
+    fs.readSync(fd, header, 0, header.length, 0);
+    const encoding = header.readUInt16LE(20) === 3 ? 'float' : 'pcm';
+    const dataSize = header.readUInt32LE(encoding === 'float' ? 54 : 40);
+    return {
+      riff: header.toString('ascii', 0, 4),
+      channels: header.readUInt16LE(22),
+      sr: header.readUInt32LE(24),
+      bits: header.readUInt16LE(34),
+      encoding, dataSize, bytes: fs.fstatSync(fd).size,
+      duration: dataSize / header.readUInt32LE(28),
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 module.exports = {
