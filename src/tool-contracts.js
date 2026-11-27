@@ -26,7 +26,11 @@ const waveStats = object({ durationSeconds: number, integratedLufs: numericOrNul
 const renderSettings = { kind: text, seed: integer, volume: number, sampling_rate: integer, mono: bool };
 const generatedWave = { path: wav, kind: text, seed: integer, durationSeconds: number, bytes: integer };
 const managedOutputs = object({ output_dir: path, files: array(object({ file_id: fileId, path })) });
-const asset = object({ file_id: fileId, path, state: { type: 'string', enum: OUTPUT_STATES } }, { archive_path: path, tool: text, created_at: text });
+const asset = object({
+  file_id: fileId,
+  path: { ...path, description: 'Chemin d’origine. Pour un projet actif, réutilise-le comme project_path.' },
+  state: { type: 'string', enum: OUTPUT_STATES, description: 'Emplacement actuel du fichier, au chemin d’origine ou dans l’archive.' },
+}, { archive_path: { ...path, description: 'Chemin actuel du fichier lorsqu’il est archivé.' }, tool: text, created_at: text });
 const draftCandidate = object({ id: { ...integer, description: 'Numéro de l’esquisse ou du morceau dans la liste.' },
   project_path: project, preview_path: wav, warnings: { ...array(text), description: 'Écarts au brief et avertissements techniques pour cette esquisse.' } }, {
   music: { ...details, description: 'Style, tempo en BPM, tonalité, durée musicale et instruments retenus pour ce morceau.',
@@ -45,7 +49,10 @@ const results = {
   },
   calibrate_sound: object({ sound: text, role: text, probes: array(details),
     calibration_path: { ...path, description: 'Fichier à inclure dans calibration_paths pour appliquer les corrections.' } }),
-  compare_sounds: object({ files: array(take) }, { reveal_path: path }),
+  compare_sounds: object({ files: array(take) }, {
+    reveal_path: { ...path, description: 'Manifeste des identités des prises anonymisées avec blind=true.' },
+    seed: { ...integer, description: 'Graine de génération renvoyée lorsque la comparaison est nominative.' },
+  }),
   vary_sound: object({ reference: object({ id: text, label: text, preview_path: wav }), sounds: array(variantSound) }),
   list_catalog: object({ category: text, items: array(object({ id: text, description: text }, { label: text, part: text, source: text, tempo: number })) },
     { colors: details, instruments: array(text) }),
@@ -79,13 +86,21 @@ const results = {
   learn_music_preference: object({ criterion: text, choice: text, choices: details,
     profile_path: { ...path, description: 'Profil local réutilisable dans draft_music.' } }),
   analyze_music: object({ ...waveStats.properties, warnings: array(text) }, {
+    channels: { ...integer, enum: [1, 2], description: 'Nombre de canaux du signal mesuré.' },
+    sampleRate: { ...integer, description: 'Fréquence d’échantillonnage du signal mesuré, en hertz.' },
+    clippedFrames: { ...integer, description: 'Nombre de trames dont un canal atteint le seuil de saturation numérique.' },
+    stereoCorrelation: { ...numericOrNull, description: 'Corrélation entre canaux de −1 à 1, ou null si elle est indéfinie.' },
+    sections: { ...array(details), description: 'Mesures par section pour un projet SoundMCP.' },
+    stems: { ...details, description: 'Niveaux moyens rmsDbfs par pupitre pour un projet SoundMCP.' },
+    suggestedEdits: { ...array(details), description: 'Retouches proposées pour un projet, au format edits de edit_music.' },
     harmonicOverlaps: object({ total: integer, minimumSeconds: number, bars: array(details), examples: array(details) }),
   }),
   inspect_score: object({ start_bar: integer, bars: integer, measures: array(details),
     events: array(object({ bar: integer, part: text, instrument: text, beat: number, duration: number, played: details }, { pitch: integer, hit: text })),
     offset: integer, event_count: integer, next_offset: { ...offset, description: 'Valeur à passer dans offset pour la page suivante.' } }),
   manage_outputs: { type: 'object', oneOf: [
-    object({ output_dir: path, files: array(asset), total: integer, next_offset: offset }),
+    object({ output_dir: path, files: array(asset), total: integer,
+      next_offset: { ...offset, description: 'À passer dans offset avec les mêmes filtres, ou null à la dernière page.' } }),
     { ...asset, properties: { output_dir: path, ...asset.properties }, required: ['output_dir', ...asset.required] },
   ] },
   create_sfx: object({ ...generatedWave, render_settings: object(renderSettings) }),

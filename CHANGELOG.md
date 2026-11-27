@@ -1,3 +1,11 @@
+# SoundMCP 2.1.1
+
+- Les définitions MCP de `create_sfx` et `create_ambience` précisent comment reprendre un rendu par son identifiant, quels réglages sont hérités et dans quels cas un WAV existant est écrasé.
+- Les définitions de sept autres outils précisent les paramètres à combiner pour les esquisses, les comparaisons, les retouches et les exports. Elles expliquent aussi comment retrouver un projet et mémoriser une préférence musicale.
+- Les schémas de sortie documentent les mesures audio, les comparaisons à l’aveugle et les chemins des fichiers archivés.
+
+---
+
 # SoundMCP 2.1.0
 
 - `draft_music` accepte `briefs` pour composer trois à six morceaux distincts en un appel. La collection regroupe les préécoutes, les projets éditables et les réglages utiles pour reprendre chaque morceau séparément.
