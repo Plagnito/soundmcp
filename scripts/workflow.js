@@ -228,9 +228,15 @@ async function main() {
   assert.deepEqual(normal.events.filter((event) => event.bus === 'mel'), changed.events.filter((event) => event.bus === 'mel'));
   assert(normal.events.some((event, i) => changed.events[i].gain < (event.gain ?? 1)));
   const profile = path.join(dir, 'preferences.soundmcp.json');
-  const remembered = (await callTool('learn_music_preference', { comparison_path: comparison.comparison_path,
-    chosen: discreet.label, profile_path: profile })).structuredContent;
+  const preferenceArgs = { comparison_path: comparison.comparison_path, chosen: discreet.label, profile_path: profile };
+  const remembered = (await callTool('learn_music_preference', preferenceArgs)).structuredContent;
   assert.equal(remembered.choices.accompaniment, 'discreet');
+  const older = new Date('2000-01-01T00:00:00Z');
+  fs.utimesSync(profile, older, older);
+  const profileTime = fs.statSync(profile).mtimeMs;
+  const repeated = (await callTool('learn_music_preference', preferenceArgs)).structuredContent;
+  assert.deepEqual(repeated, remembered);
+  assert.equal(fs.statSync(profile).mtimeMs, profileTime);
   const next = (await callTool('draft_music', { brief: '15 secondes, mélodie lumineuse', style: 'menu', variants: 1,
     seed: 33, profile_path: profile, output_dir: dir, palette: 'synth', auto_mix: false })).structuredContent;
   assert.equal(next.plan.preferences.accompaniment, 'discreet');
@@ -289,6 +295,9 @@ async function main() {
   assert.equal(final.audio.durationSeconds, 18);
   assert.equal(final.audio.bits, 24);
   assert.equal(final.project_path, final.files.find((file) => file.format === 'project').path);
+  const delivery = JSON.parse(fs.readFileSync(final.report_path, 'utf8'));
+  assert.deepEqual(delivery.files, final.files);
+  assert.deepEqual(delivery.cuts, final.cuts);
   assert(final.files.some((file) => file.format === 'midi'));
   assert(final.files.some((file) => file.stem === 'mel'));
   assert.equal(new Set(final.editions.map((edition) => edition.samples)).size, 1);

@@ -120,7 +120,8 @@ async function main() {
   const archived = await manage('archive', { file_id });
   assert(!fs.existsSync(output));
   assert.deepEqual(fs.readFileSync(archived.archive_path), bytes);
-  assert.equal((await manage('archive', { file_id })).state, 'archived');
+  assert.equal(archived.path, output);
+  assert.deepEqual(await manage('archive', { file_id }), archived);
   assert.equal((await manage('list')).files[0].state, 'archived');
   assert.deepEqual((await manage('list', { state: 'active' })).files, []);
   assert.equal((await manage('list', { state: 'archived' })).files[0].file_id, file_id);
@@ -128,9 +129,10 @@ async function main() {
   await assert.rejects(manage('restore', { file_id }), /autre fichier/);
   assert.equal(fs.readFileSync(output, 'utf8'), 'Fichier occupant le chemin d’origine');
   fs.renameSync(output, path.join(output_dir, 'occupant.wav'));
-  await manage('restore', { file_id });
+  const restored = await manage('restore', { file_id });
   assert.deepEqual(fs.readFileSync(output), bytes);
-  assert.equal((await manage('restore', { file_id })).state, 'active');
+  assert.equal(restored.state, 'active');
+  assert.deepEqual(await manage('restore', { file_id }), restored);
   await assert.rejects(manage('archive', { file_id: '../personnel.wav' }), /file_id/);
 
   const { structuredContent: quieter } = await callTool('create_sfx', { source_file_id: file_id, output_dir, volume: 0.35 });
