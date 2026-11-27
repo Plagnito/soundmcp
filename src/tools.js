@@ -544,8 +544,8 @@ const TOOLS = [
     name: 'design_sound',
     title: ui('Créer un timbre', 'Design a sound'),
     description: ui(
-      'Crée un timbre réutilisable à partir d’un brief ou d’un patch. Choisis layers pour des oscillateurs, modal pour un matériau frappé ou frotté, ou waveguide pour une corde pincée. Rend une seule note et écrit son WAV et le patch dans un nouveau dossier. Pour un effet prêt à jouer, utilise create_sfx.',
-      'Design a reusable sound from a brief or a patch. Choose layers for oscillators, modal for struck or bowed material, or waveguide for a plucked string. Renders one note and writes its WAV and patch in a new directory. For a ready-to-use effect, use create_sfx.',
+      'Crée un timbre réutilisable à partir d’un brief ou d’un patch. Avec patch, choisis layers pour des oscillateurs, modal pour un matériau frappé ou frotté, ou waveguide pour une corde pincée. Pour entendre le relâchement, raccourcis gate_seconds ou allonge duration_seconds. Écrit le patch et le WAV d’une seule note dans un dossier unique sous output_dir. Pour décliner un patch existant, utilise vary_sound. Pour un effet prêt à jouer, utilise create_sfx.',
+      'Design a reusable sound from a brief or a patch. With patch, choose layers for oscillators, modal for struck or bowed material, or waveguide for a plucked string. To hear the release, shorten gate_seconds or extend duration_seconds. Writes the patch and a single-note WAV in a unique folder under output_dir. Use vary_sound to modify an existing patch, or create_sfx for a ready-to-use effect.',
     ),
     inputSchema: { type: 'object', properties: {
       brief: { type: 'string', minLength: 1, maxLength: 1000, description: ui(
@@ -633,8 +633,8 @@ const TOOLS = [
     name: 'vary_sound',
     title: ui('Décliner un timbre', 'Create sound variants'),
     description: ui(
-      'Affine un patch existant. Chaque direction part du patch d’origine avec la même intensité amount. Rend la référence et une prise par variante sur la même phrase à sonie alignée, dans un nouveau dossier. Pour choisir entre des timbres existants, utilise compare_sounds.',
-      'Refine an existing patch. Each direction starts from the original patch and uses the same amount. Renders the reference and one take per variant using the same phrase at matched loudness in a new directory. To choose among existing sounds, use compare_sounds.',
+      'Crée des variantes d’un patch existant. Chaque entrée de directions applique amount au patch d’origine. Une direction suffit pour une première écoute. Rend de deux à cinq WAV à sonie alignée, référence comprise, avec les patches des variantes dans un dossier unique sous output_dir. Pour partir d’un brief, utilise design_sound. Pour comparer des timbres déjà prêts, utilise compare_sounds.',
+      'Create variations of an existing patch. Each entry in directions applies amount to the original patch. Start with one direction for a quick audition. Renders two to five loudness-matched WAVs, including the reference, with the variant patches in a unique folder under output_dir. Use design_sound to start from a brief or compare_sounds to compare existing sounds.',
     ),
     inputSchema: { type: 'object', properties: { ...PATCH_SOURCE_PROPERTIES, ...AUDITION_PROPERTIES,
       directions: { type: 'array', minItems: 1, maxItems: DIRECTIONS.length, uniqueItems: true,
@@ -656,13 +656,13 @@ const TOOLS = [
     name: 'list_catalog',
     title: ui('Parcourir le catalogue sonore', 'Browse the sound catalog'),
     description: ui(
-      'Découvre tous les identifiants intégrés d’une catégorie en un appel. Réutilise items[].id dans l’outil de rendu. Si l’identifiant est déjà connu, appelle directement cet outil.',
-      'Discover all built-in IDs in one category in a single call. Pass items[].id to the render tool. If you already know the ID, call that tool directly.',
+      'Liste une catégorie complète d’identifiants intégrés dans l’ordre du catalogue. Cherche un style avec category=music pour create_music, un effet avec sfx pour create_sfx, une ambiance avec ambiences pour create_ambience ou un timbre avec sounds pour play_sound. Passe directement un identifiant déjà connu à l’outil de rendu, par exemple create_music avec style=lofi.',
+      'List every built-in ID in one category in catalog order. Use category=music to find a style for create_music, sfx to find an effect for create_sfx, ambiences for create_ambience, or sounds for play_sound. If the ID is known, pass it directly to the renderer, for example create_music with style=lofi.',
     ),
     inputSchema: { type: 'object', required: ['category'], properties: {
       category: { type: 'string', enum: CATALOG_CATEGORIES, description: ui(
-        'music donne les styles pour create_music.style, sfx les effets pour create_sfx.kind, ambiences les fonds pour create_ambience.kind et sounds les timbres pour play_sound.instrument.',
-        'music lists styles for create_music.style, sfx lists effects for create_sfx.kind, ambiences lists backgrounds for create_ambience.kind, and sounds lists instruments for play_sound.instrument.',
+        'Une catégorie par appel. Réutilise items[].id tel quel dans style pour music, kind pour sfx et ambiences, ou instrument pour sounds. La catégorie music inclut aussi le tempo et la durée par défaut.',
+        'One category per call. Use items[].id unchanged as style for music, kind for sfx or ambiences, or instrument for sounds. The music category also includes default tempo and duration.',
       ) },
     } },
   },
@@ -671,20 +671,20 @@ const TOOLS = [
     title: ui('Préparer des esquisses instrumentales', 'Draft instrumental music'),
     description: [
       ui(
-        'Explore un brief instrumental en proposant des esquisses à choisir. Chaque appel écrit leurs projets éditables et leurs préécoutes à sonie alignée dans un nouveau sous-dossier.',
-        'Explore an instrumental brief by offering drafts to choose from. Each call writes their editable projects and matched-loudness previews in a new subdirectory.',
+        'Compose des esquisses instrumentales à partir d’un brief. Chaque esquisse produit un projet éditable et une préécoute WAV à sonie alignée. Chaque appel crée un dossier unique sous output_dir, même si le titre existe déjà.',
+        'Compose instrumental drafts from a brief. Each draft produces an editable project and a loudness-matched WAV preview. Every call creates a unique folder under output_dir, even with a previously used title.',
       ),
       ui(
-        'Avec brief, variants choisit le nombre de prises de la même idée. Avec briefs, chaque entrée donne un morceau. Les valeurs fournies pour tempo et duration_seconds priment sur celles du texte. Les exclusions du texte et de without se cumulent.',
-        'With brief, variants controls the take count for one idea. With briefs, each entry produces a track. Explicit tempo and duration_seconds override the brief. Exclusions in without and the brief are combined.',
+        'Avec brief, choisis de 1 à 3 prises avec variants. Pour une collection, donne 3 à 6 briefs et omets variants. Chaque brief produit une préécoute. Les valeurs explicites de tempo et duration_seconds priment sur le texte. Les exclusions du brief et de without se cumulent.',
+        'With brief, use variants for 1 to 3 takes. For a collection, pass 3 to 6 briefs and omit variants. Each brief produces one preview. Explicit tempo and duration_seconds override the text. Exclusions in without and the brief are combined.',
       ),
       ui(
         'Pour reprendre un morceau de la collection seul, copie les champs du résultat shared_options à la racine du nouvel appel. Ajoute le brief et le seed du morceau avec variants=1.',
         'To recreate one collection track, copy the returned shared_options fields to the top level of the new call. Add the track’s brief and seed with variants=1.',
       ),
       ui(
-        'Pars d’une ligne MIDI avec midi_motif ou d’un passage SoundMCP avec source_excerpt. Le brief décrit le nouveau morceau.',
-        'Start from a MIDI line with midi_motif or a saved SoundMCP passage with source_excerpt. The brief describes the new track.',
+        'Tu peux fournir une source mélodique parmi motif, midi_motif et source_excerpt. Pour développer un passage avec source_excerpt, donne un brief unique qui décrit le nouveau morceau.',
+        'Choose at most one melodic source: motif, midi_motif, or source_excerpt. When developing a passage with source_excerpt, supply a single brief describing the new track.',
       ),
       ui(
         'Pour le master, passe le project_path retenu à finish_music. Pour composer et exporter directement depuis un style, appelle create_music.',
@@ -910,8 +910,8 @@ const TOOLS = [
     name: 'inspect_score',
     title: ui('Lire la partition', 'Inspect the score'),
     description: ui(
-      'Lis les accords et les notes écrites ou jouées sur une plage de mesures. Pour écouter ce passage, utilise preview_music. Pour réécrire les notes d’une mesure, utilise edit_music avec edits[].type=write_measure.',
-      'Read chords and both written and performed note timing in a range of bars. To hear the passage, use preview_music. To rewrite a bar, use edit_music with edits[].type=write_measure.',
+      'Lis les accords et les notes d’une plage de mesures, avec le temps écrit et le jeu réel. part filtre les notes et limit les pagine. La réponse contient toujours tous les accords de la plage. Pour continuer, passe next_offset dans offset avec la même plage et le même pupitre. Pour écouter, utilise preview_music. Pour réécrire une mesure, utilise edit_music avec edits[].type=write_measure.',
+      'Read chords and notes for a range of bars, with written and performed timing. part filters notes and limit paginates them. Each response includes all chords in the range. To continue, pass next_offset as offset with the same range and part. Use preview_music to listen or edit_music with edits[].type=write_measure to rewrite a bar.',
     ),
     inputSchema: { type: 'object', required: ['project_path'], properties: { project_path: PROJECT_SCHEMA,
       start_bar: { ...REGION_SCHEMA.properties.start_bar, default: 1 },
@@ -935,16 +935,16 @@ const TOOLS = [
     title: ui('Retrouver et ranger les sorties', 'Find and manage outputs'),
     description: [
       ui(
-        'Retrouve et range les sorties déjà enregistrées par SoundMCP dans un dossier de rendu.',
-        'Find and organize outputs already registered by SoundMCP in a render directory.',
+        'Liste, archive ou restaure les fichiers enregistrés par SoundMCP dans output_dir. Pour déplacer un fichier, associe son file_id au dossier du rendu qui l’a émis.',
+        'List, archive, or restore files registered by SoundMCP within output_dir. When moving a file, use its file_id with the directory of the render that issued it.',
       ),
       ui(
-        'Pour rouvrir un morceau, utilise list avec file_type=project et state=active. Passe le path du projet comme project_path à preview_music ou edit_music.',
-        'To reopen a track, use list with file_type=project and state=active. Pass the project’s path as project_path to preview_music or edit_music.',
+        'list combine file_type et state et renvoie les résultats du plus récent au plus ancien. Passe next_offset dans offset avec les mêmes filtres pour continuer. Pour retrouver un projet à rouvrir dans preview_music, choisis file_type=project et state=active.',
+        'list combines file_type and state and returns newest results first. Pass next_offset as offset with the same filters to continue. To find a project to reopen in preview_music, choose file_type=project and state=active.',
       ),
       ui(
-        'Sur demande de l’utilisateur, déplace un fichier avec archive et annule le déplacement avec restore. Répéter la même action conserve l’état atteint. Un fichier occupant la destination est préservé et l’appel échoue.',
-        'At the user’s request, move a file with archive and undo the move with restore. Repeating the same action preserves the resulting state. If another file occupies the destination, the call fails and leaves that file in place.',
+        'Sur demande de l’utilisateur, archive déplace le fichier dans l’archive locale du dossier. restore le remet à son emplacement d’origine. Ces actions exigent des droits d’écriture, sont sûres à répéter et échouent si un autre fichier occupe la destination.',
+        'At the user’s request, archive moves the file into the directory’s local archive. restore moves it back to its original location. Both require write access, are safe to repeat, and fail if another file occupies the destination.',
       ),
     ].join('\n'),
     inputSchema: { type: 'object', required: ['action'], properties: {
