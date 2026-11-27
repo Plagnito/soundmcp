@@ -144,6 +144,8 @@ Passe un fichier MIDI de ton DAW à `draft_music`. Le thème reprend ses hauteur
 
 L’import lit une seule ligne monophonique de 24 notes au plus, sur une ou deux mesures de même signature, dans un SMF de type 0 ou 1 en ticks par noire. `track` et `channel` sont numérotés à partir de 1. Par défaut, la première piste et le premier canal contenant une ligne non percussive dans la plage sont retenus. L’import reprend le tempo au début du passage, arrondi au BPM, et sa signature si le brief et les paramètres ne les précisent pas. Si tu imposes une autre signature, les positions restent proportionnelles dans la mesure. Les tenues sont bornées par la plage sélectionnée. L’import porte sur les notes, leur vélocité et leur placement. La pédale, les changements de programme et le pitch bend restent propres au MIDI source.
 
+Dans `draft_music`, `instrument_roles` permet de préciser les pupitres de l’esquisse. Par exemple, `{"mel":"cello","pad":"strings","arp":"harp"}` donne le thème au violoncelle, la nappe aux cordes et les arpèges à la harpe. Les autres pupitres suivent les timbres suggérés et le style.
+
 #### Livrer une musique adaptative
 
 Passe `adaptive` à `finish_music` pour produire une introduction, une boucle et une sortie. Garde une mesure ou plus de chaque côté de la région. Cette région peut coexister avec les éditions alignées. Le rendu continu sert à préparer les trois WAV et les fondus de raccord conservent leurs longueurs.

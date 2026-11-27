@@ -5,7 +5,7 @@ const { STYLES } = require('./styles');
 const { parseKey, SHARPS, SCALES, chordFromDegree, chordFromSymbol, degreeSemitone, midiToFreq } = require('./theory');
 const { isMeter, COMMON_METER, musicClock } = require('./music-clock');
 const { makeRng, hash32 } = require('./rng');
-const { applySounds, SOUND_DESIGNS } = require('./section-sounds');
+const { applySounds, SOUND_DESIGNS, SOUND_PARTS } = require('./section-sounds');
 const { SOUNDS } = require('./texture-voices');
 const { readPhrasing, THEME_TREATMENTS, transformMotif } = require('./melodic-phrasing');
 const { validateMotif } = require('./arrangement');
@@ -86,6 +86,15 @@ function interpretBrief(input, options = {}) {
   }
   const excluded = [...new Set([...barred, ...(options.without ?? [])])];
   const instruments = [...new Set(options.instruments ?? named)].filter((name) => !excluded.includes(name));
+  const instrumentRoles = options.instrument_roles;
+  if (instrumentRoles !== undefined && (!instrumentRoles || typeof instrumentRoles !== 'object' || Array.isArray(instrumentRoles) ||
+      !Object.keys(instrumentRoles).length || Object.entries(instrumentRoles).some(([part, instrument]) =>
+        !SOUND_PARTS.includes(part) || instrument === 'drum' || !PLAYABLE.includes(instrument)))) {
+    throw new Error('instrument_roles attend des pupitres mélodiques et des timbres jouables du catalogue.');
+  }
+  if (instrumentRoles && Object.values(instrumentRoles).some((instrument) => excluded.includes(instrument))) {
+    throw new Error('Un timbre assigné dans instrument_roles est exclu par le brief ou without.');
+  }
   const quietEnding = /\b(?:fin|ending|outro)\s+(?:calme|douce|quiet|soft|paisible)\b/;
   const body = text.replace(quietEnding, '');
   const energy = options.energy ?? (/\b(progressive?|montee|crescendo|grandit|builds?|rising)\b/.test(body) ? 'rising'
@@ -110,6 +119,7 @@ function interpretBrief(input, options = {}) {
     throw new Error(`reprise_treatment attend ${THEME_TREATMENTS.join(', ')}.`);
   }
   return { brief: input.trim(), style, duration, tempo: Math.round(tempo), meter, key, energy, instruments, excluded,
+    ...(instrumentRoles ? { instrumentRoles: { ...instrumentRoles } } : {}),
     loop: Boolean(loop), quietEnd, slowEnd, solo, pizzicato, spiccato, use, instrumental: true, soundDesign, phrasing,
     ...(midi ? { motif: midi.motif, midi_source: midi.source } : options.motif === undefined ? {} : { motif: options.motif }),
     ...(options.reprise_treatment === undefined ? {} : { repriseTreatment: options.reprise_treatment }),
@@ -118,7 +128,7 @@ function interpretBrief(input, options = {}) {
 }
 
 function chooseInstruments(plan, profile) {
-  const choices = {};
+  const choices = { ...plan.instrumentRoles };
   const instruments = plan.instruments.filter((inst) => inst !== 'drum');
   const assign = (role, inst) => { if (!choices[role] && !Object.values(choices).includes(inst)) choices[role] = inst; };
   for (const inst of instruments) {
@@ -129,8 +139,10 @@ function chooseInstruments(plan, profile) {
     else assign('counter', inst);
   }
   if (plan.solo && instruments.length) {
-    choices.mel = instruments[0];
-    if (profile.arp?.enabled && !['cello', 'flute', 'clarinet', 'brass', 'upright', 'trumpet', 'trombone', 'tuba'].includes(instruments[0])) choices.arp = instruments[0];
+    choices.mel = plan.instrumentRoles?.mel ?? instruments[0];
+    if (profile.arp?.enabled && !['cello', 'flute', 'clarinet', 'brass', 'upright', 'trumpet', 'trombone', 'tuba'].includes(instruments[0])) {
+      choices.arp = plan.instrumentRoles?.arp ?? instruments[0];
+    }
   }
   return choices;
 }
@@ -143,7 +155,8 @@ function orchestra(song, assignments, plan) {
     const section = sections.find((s) => (event.beat ?? event.t) < (s.startBar + s.bars - 1) * 4);
     const source = event.inst === 'nylon' ? 'acoustic-guitar' : event.inst;
     const local = plan.phrasing === 'lyrical' ? section?.instruments?.[event.bus] : undefined;
-    let inst = event.inst === 'sub' && !plan.solo ? 'sub' : local ?? assignments[event.bus] ?? source;
+    let inst = event.inst === 'sub' && !plan.solo && !plan.instrumentRoles?.[event.bus]
+      ? 'sub' : local ?? assignments[event.bus] ?? source;
     if (plan.excluded.includes(inst)) inst = ROLE_FALLBACK[event.bus].find((name) => !plan.excluded.includes(name));
     if (!inst) return [];
     let articulation = event.articulation;
@@ -209,7 +222,7 @@ function arrange(plan, seedBase, variant, title) {
   const perBar = 60 * beats / plan.tempo;
   const slower = clamp(Math.round(plan.tempo * 0.84), 40, 220);
   const assignments = chooseInstruments(plan, profile);
-  const alternateLead = lyrical && !plan.solo ? [
+  const alternateLead = lyrical && !plan.solo && !plan.instrumentRoles?.mel ? [
     assignments.counter, assignments.arp, ...(plan.instruments.length ? [] : ['flute', 'clarinet', 'tri']),
   ].find((inst) => inst && inst !== (assignments.mel ?? profile.melody?.inst) && !plan.excluded.includes(inst)) : undefined;
   const active = ['pad', 'arp', 'bass', 'mel', ...(assignments.counter ? ['counter'] : []), ...(profile.drums && !plan.excluded.includes('drum') ? ['drum'] : [])];

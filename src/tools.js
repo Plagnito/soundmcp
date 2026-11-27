@@ -383,6 +383,10 @@ const DRAFT_MUSIC_OPTIONS = {
   ...INTERPRETATION_PROPERTIES,
   ...PATCH_IMPORT,
   instruments: { type: 'array', items: { type: 'string', enum: PLAYABLE }, description: 'Timbres à privilégier dans l’orchestration.' },
+  instrument_roles: { type: 'object', minProperties: 1, additionalProperties: false,
+    description: 'Affecte explicitement des timbres intégrés aux pupitres présents. Les autres pupitres restent choisis selon instruments et le style.',
+    properties: Object.fromEntries(SOUND_PARTS.map((part) => [part, { type: 'string', enum: PLAYABLE.filter((id) => id !== 'drum') }])),
+  },
   without: { type: 'array', items: { type: 'string', enum: PLAYABLE }, description: 'Timbres à exclure de l’orchestration.' },
 };
 
@@ -460,6 +464,7 @@ const TOOLS = [
       'Avec brief, variants choisit le nombre de prises de la même idée. Avec briefs, chaque entrée donne un morceau. Les valeurs fournies pour tempo et duration_seconds priment sur celles du texte. Les exclusions du texte et de without se cumulent.',
       'Pour reprendre un morceau de la collection seul, réutilise son brief et son seed avec shared_options et variants=1. Passe le project_path retenu à finish_music. Pour exporter directement depuis un style, utilise create_music.',
       'Avec midi_motif, reprends les notes et le rythme d’une ligne MIDI et laisse SoundMCP en écrire l’accompagnement.',
+      'Pour confier le thème à un timbre précis, donne instrument_roles.mel, par exemple cello.',
     ].join('\n'),
     inputSchema: { type: 'object', properties: {
       brief: { ...DRAFT_BRIEF, description: 'Brief français ou anglais pour une seule idée musicale. Ex. « 75 secondes pour une exploration nocturne, piano feutré et montée progressive. »' },

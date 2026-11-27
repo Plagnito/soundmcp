@@ -66,6 +66,7 @@ async function checkMidiAndDraft() {
     brief: '5 secondes de jazz en do majeur, piano et contrebasse',
     midi_motif: { path: file }, variants: 1, seed: 94, palette: 'synth',
     inline_audio: true, output_dir: directory, use_preferences: false,
+    instruments: ['cello', 'harp', 'strings'], instrument_roles: { mel: 'cello', arp: 'harp', pad: 'strings' },
   });
   const candidate = draft.structuredContent.candidates[0];
   assert.deepEqual(candidate.midi_source, source);
@@ -75,11 +76,14 @@ async function checkMidiAndDraft() {
   const onset = (theme.startBar - 1) * 4;
   const written = song.events.filter((event) => event.bus === 'mel' && event.beat >= onset && event.beat < onset + 8);
   for (const [i, note] of motif.entries()) {
+    assert.equal(written[i].inst, 'cello');
     assert.equal(written[i].midi, note.midi);
     assert.equal(written[i].beat - onset, note.beat);
     assert.equal(written[i].t - onset, note.beat);
     assert.ok(Math.abs(written[i].dur - note.duration) < 1e-8);
   }
+  assert.ok(song.events.some((event) => event.bus === 'pad' && event.inst === 'strings'));
+  await assert.rejects(callTool('draft_music', { brief: 'Jazz sans violoncelle', instrument_roles: { mel: 'cello' } }), /exclu/);
   assertAudio(draft, 1);
   fs.renameSync(file, file + '.saved');
   const fallback = await callTool('preview_music', { project_path: candidate.project_path, output_dir: directory });
