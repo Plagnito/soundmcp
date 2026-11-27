@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { createSong } = require('./composer');
 const { STYLES } = require('./styles');
 const { parseKey, SHARPS, SCALES, chordFromDegree, chordFromSymbol, degreeSemitone, midiToFreq } = require('./theory');
@@ -49,27 +51,27 @@ const MELODIC_STYLES = new Set(['ambient', 'menu', 'lofi', 'village', 'fantasy',
 const MELODIC_HINT = /\b(agreable|plaisant(?:e)?|chaleureu(?:x|se)|chantant(?:e)?|melodique|lumineu(?:x|se)|pleasant|warm|lyrical|melodic|bright)\b/;
 
 function interpretBrief(input, options = {}) {
-  if (typeof input !== 'string' || !input.trim() || input.length > 1600) throw new Error('brief attend une phrase de 1 à 1600 caractères.');
+  if (typeof input !== 'string' || !input.trim() || input.length > 1600) throw new Error(ui('brief attend une phrase de 1 à 1600 caractères.', 'brief must contain 1 to 1600 characters.'));
   const text = normalize(input).replace(/♯/g, '#').replace(/♭/g, 'b');
   const matches = STYLES_BY_HINT.filter(([, re]) => re.test(text)).map(([id]) => id);
   const style = options.style ?? matches[0] ?? 'menu';
-  if (!Object.hasOwn(STYLES, style)) throw new Error(`Style inconnu : ${style}.`);
+  if (!Object.hasOwn(STYLES, style)) throw new Error(ui(`Style inconnu : ${style}.`, `Unknown style: ${style}.`));
   const profile = STYLES[style];
   const length = /\b(\d+(?:[.,]\d+)?)\s*(min(?:ute)?s?|secondes?|seconds?|secs?|s)\b/.exec(text);
   const mixedLength = /\b(\d+)\s*(?:min(?:ute)?s?)\s+(\d{1,2})\s*(?:s|secondes?|seconds?)?\b/.exec(text);
   const duration = options.duration_seconds ?? (mixedLength ? Number(mixedLength[1]) * 60 + Number(mixedLength[2])
     : length ? Number(length[1].replace(',', '.')) * (length[2].startsWith('min') ? 60 : 1) : 60);
-  if (!Number.isFinite(duration) || duration < 5 || duration > 600) throw new Error('La durée attendue est de 5 à 600 secondes.');
+  if (!Number.isFinite(duration) || duration < 5 || duration > 600) throw new Error(ui('La durée attendue est de 5 à 600 secondes.', 'Duration must be between 5 and 600 seconds.'));
   const met = /\b(\d{1,2})\/(2|4|8|16)\b/.exec(text);
   const midi = options.midiImport;
   const meter = options.meter ?? (met ? met.slice(1).map(Number) : midi?.meter ?? COMMON_METER);
-  if (!isMeter(meter)) throw new Error('La mesure doit être une paire comme [3,4] ou [6,8].');
+  if (!isMeter(meter)) throw new Error(ui('La mesure doit être une paire comme [3,4] ou [6,8].', 'The time signature must be a pair such as [3,4] or [6,8].'));
   const bpm = /\b(\d{2,3})\s*bpm\b/.exec(text);
   const tempo = options.tempo ?? (bpm ? Number(bpm[1]) : midi?.tempo ?? profile.defaults.tempo);
-  if (!Number.isFinite(tempo) || tempo < 40 || tempo > 220) throw new Error('Le tempo attendu est de 40 à 220 BPM.');
+  if (!Number.isFinite(tempo) || tempo < 40 || tempo > 220) throw new Error(ui('Le tempo attendu est de 40 à 220 BPM.', 'Tempo must be between 40 and 220 BPM.'));
   const keyHint = /\b(?:en|in)\s+([a-g][#b]?|do|re|mi|fa|sol|la|si)\s+(mineur harmonique|harmonic minor|mineur|majeur|minor|major|dorien|dorian|lydien|lydian|mixolydien|mixolydian|phrygien|phrygian)\b/.exec(text);
   const key = options.key ?? keyHint?.slice(1).join(' ');
-  if (key !== undefined && !parseKey(key)) throw new Error(`Tonalité inconnue : ${key}.`);
+  if (key !== undefined && !parseKey(key)) throw new Error(ui(`Tonalité inconnue : ${key}.`, `Unknown key: ${key}.`));
   const named = [], barred = [];
   const explicitGuitar = ['electric-clean', 'electric-drive', 'electric-swell'].map((id) => INSTRUMENT_HINTS[id]).join('|');
   for (const [inst, pattern] of Object.entries(INSTRUMENT_HINTS)) {
@@ -81,7 +83,7 @@ function interpretBrief(input, options = {}) {
   }
   for (const [field, supplied] of [['instruments', options.instruments], ['without', options.without]]) {
     if (supplied !== undefined && (!Array.isArray(supplied) || supplied.length > PLAYABLE.length || supplied.some((name) => !PLAYABLE.includes(name)))) {
-      throw new Error(`${field} accepte : ${PLAYABLE.join(', ')}.`);
+      throw new Error(ui(`${field} accepte : ${PLAYABLE.join(', ')}.`, `${field} accepts: ${PLAYABLE.join(', ')}.`));
     }
   }
   const excluded = [...new Set([...barred, ...(options.without ?? [])])];
@@ -90,16 +92,19 @@ function interpretBrief(input, options = {}) {
   if (instrumentRoles !== undefined && (!instrumentRoles || typeof instrumentRoles !== 'object' || Array.isArray(instrumentRoles) ||
       !Object.keys(instrumentRoles).length || Object.entries(instrumentRoles).some(([part, instrument]) =>
         !SOUND_PARTS.includes(part) || instrument === 'drum' || !PLAYABLE.includes(instrument)))) {
-    throw new Error('instrument_roles attend des pupitres mélodiques et des timbres jouables du catalogue.');
+    throw new Error(ui(
+      'instrument_roles attend des pupitres mélodiques et des timbres jouables du catalogue.',
+      'instrument_roles requires melodic parts and playable instruments from the catalog.',
+    ));
   }
   if (instrumentRoles && Object.values(instrumentRoles).some((instrument) => excluded.includes(instrument))) {
-    throw new Error('Un timbre assigné dans instrument_roles est exclu par le brief ou without.');
+    throw new Error(ui('Un timbre assigné dans instrument_roles est exclu par le brief ou without.', 'An instrument assigned in instrument_roles is excluded by the brief or without.'));
   }
   const quietEnding = /\b(?:fin|ending|outro)\s+(?:calme|douce|quiet|soft|paisible)\b/;
   const body = text.replace(quietEnding, '');
   const energy = options.energy ?? (/\b(progressive?|montee|crescendo|grandit|builds?|rising)\b/.test(body) ? 'rising'
     : /\b(intense|nerveux|energetique|energetic)\b/.test(body) ? 'strong' : /\b(calme|calm|minimal|feutre|paisible|soft)\b/.test(body) ? 'gentle' : 'balanced');
-  if (!['rising', 'gentle', 'strong', 'balanced'].includes(energy)) throw new Error('energy attend rising, gentle, strong ou balanced.');
+  if (!['rising', 'gentle', 'strong', 'balanced'].includes(energy)) throw new Error(ui('energy attend rising, gentle, strong ou balanced.', 'energy must be rising, gentle, strong, or balanced.'));
   const loop = options.loop ?? (/\b(boucle|loop|looping|bouclable)\b/.test(text) && !/\b(sans|no|without) (?:de )?(?:boucle|loop|looping)\b/.test(text));
   const solo = instruments.length === 1 && /\b(seule?|only|unaccompanied)\b/.test(text);
   const quietEnd = quietEnding.test(text);
@@ -107,7 +112,7 @@ function interpretBrief(input, options = {}) {
   const pizzicato = /\b(pizzicato|pizz)\b/.test(text);
   const spiccato = /\b(spiccato|staccato)\b/.test(text);
   const soundDesign = options.sound_design ?? (/\b(textures? evolutives?|design sonore|evolving textures?|sound design|industriel(?:le)?|industrial|collage sonore)\b/.test(text) ? 'evolving' : 'classic');
-  if (!SOUND_DESIGNS.includes(soundDesign)) throw new Error('sound_design attend classic ou evolving.');
+  if (!SOUND_DESIGNS.includes(soundDesign)) throw new Error(ui('sound_design attend classic ou evolving.', 'sound_design must be classic or evolving.'));
   const percussion = readOrchestralPercussion(options.orchestral_percussion) ??
     (/\b(timbales?|timpani|percussions? orchestrales?|orchestral percussion)\b/.test(text) ? 'drive' : undefined);
   const use = /\b(jeu|game|exploration|combat|battle|boucle|loop)\b/.test(text) ? 'jeu'
@@ -116,7 +121,7 @@ function interpretBrief(input, options = {}) {
   const phrasing = readPhrasing(options.phrasing ?? (neutral || (MELODIC_STYLES.has(style) && MELODIC_HINT.test(body)) ? 'lyrical' : 'style'));
   if (options.motif !== undefined) validateMotif(options.motif);
   if (options.reprise_treatment !== undefined && !THEME_TREATMENTS.includes(options.reprise_treatment)) {
-    throw new Error(`reprise_treatment attend ${THEME_TREATMENTS.join(', ')}.`);
+    throw new Error(ui(`reprise_treatment attend ${THEME_TREATMENTS.join(', ')}.`, `reprise_treatment must be one of ${THEME_TREATMENTS.join(', ')}.`));
   }
   return { brief: input.trim(), style, duration, tempo: Math.round(tempo), meter, key, energy, instruments, excluded,
     ...(instrumentRoles ? { instrumentRoles: { ...instrumentRoles } } : {}),
@@ -303,7 +308,8 @@ function arrange(plan, seedBase, variant, title) {
   song.history = [{ action: 'brief', variant: variant + 1, seed }];
   const instruments = [...new Set(song.events.map((event) => event.drum ? 'drum' : event.inst))];
   const mainInstruments = instruments.filter((name) => LABELS[name]).map((name) => LABELS[name]);
-  const description = mainInstruments.length ? `Pupitres principaux : ${mainInstruments.join(', ')}.` : profile.desc;
+  const description = mainInstruments.length
+    ? ui('Pupitres principaux : ', 'Main instruments: ') + `${mainInstruments.join(', ')}.` : profile.desc;
   song.meta = { ...song.meta, description, brief: plan, variant: variant + 1, instruments };
   return song;
 }

@@ -107,23 +107,68 @@ function assertAudio(response, count) {
   }
 }
 
-function protocol(version, project_path) {
-  const requests = [
-    { id: 1, method: 'initialize', params: { protocolVersion: version, capabilities: {}, clientInfo: { name: 'tests', version: '1' } } },
-    { id: 2, method: 'tools/list' },
-    { id: 3, method: 'tools/call', params: { name: 'compare_music_choices',
-      arguments: { project_path, criterion: 'accompaniment', inline_audio: true, seed: 11, output_dir: directory } } },
-  ];
+function mcpRequests(version, requests, language) {
+  const initialize = { method: 'initialize',
+    params: { protocolVersion: version, capabilities: {}, clientInfo: { name: 'tests', version: '1' } } };
   const processResult = spawnSync(process.execPath, [path.join(root, 'src/index.js')], {
-    input: requests.map((request) => JSON.stringify({ ...request, jsonrpc: '2.0' })).join('\n') + '\n',
+    input: [initialize, ...requests].map((request, index) => JSON.stringify({ ...request, id: index + 1, jsonrpc: '2.0' })).join('\n') + '\n',
+    env: { ...process.env, SOUNDMCP_LANG: language ?? '' },
     encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
   });
   assert.equal(processResult.status, 0, processResult.stderr);
-  const [init, listing, comparison] = processResult.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line).result);
+  return processResult.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line).result);
+}
+
+function protocol(version, project_path, language) {
+  const [init, listing, comparison] = mcpRequests(version, [
+    { method: 'tools/list' },
+    { method: 'tools/call', params: { name: 'compare_music_choices',
+      arguments: { project_path, criterion: 'accompaniment', inline_audio: true, seed: 11, output_dir: directory } } },
+  ], language);
   assert.equal(init.protocolVersion, version);
   assert.equal(listing.tools.length, TOOLS.length);
   assert.ok(!comparison.isError, JSON.stringify(comparison));
   return { comparison, listing };
+}
+
+async function checkEnglish(project_path, frenchListing) {
+  const [init, { tools }, preview, validation, catalog, englishDraft] = mcpRequests('2025-06-18', [
+    { method: 'tools/list' },
+    { method: 'tools/call', params: { name: 'preview_music', arguments: { project_path, section: 'Theme', output_dir: directory } } },
+    { method: 'tools/call', params: { name: 'finish_music', arguments: { project_path, bit_depth: 8 } } },
+    { method: 'tools/call', params: { name: 'list_catalog', arguments: { category: 'sounds' } } },
+    { method: 'tools/call', params: { name: 'draft_music', arguments: {
+      brief: '10 seconds of jazz with soft piano and upright bass in C major', variants: 1, seed: 7,
+      loop: false, use_preferences: false, output_dir: directory,
+    } } },
+  ], 'en-GB');
+  assert.match(init.instructions, /composes instrumental music/);
+  const draft = tools.find(({ name }) => name === 'draft_music');
+  assert.equal(draft.title, 'Draft instrumental music');
+  assert.match(draft.inputSchema.properties.midi_motif.description, /monophonic/);
+  assert.match(draft.outputSchema.properties.candidates.description, /Drafts from one brief/);
+  const schemaShape = (value) => JSON.stringify(value, (key, field) =>
+    typeof field === 'string' && (key === 'title' || key === 'description') ? undefined : field);
+  assert.equal(schemaShape(tools), schemaShape(frenchListing.tools));
+  assert.equal(validation.isError, true);
+  assert.match(validation.content[0].text, /bit_depth must be 16 or 24/);
+  assert.equal(catalog.structuredContent.items.find(({ id }) => id === 'flute').label, 'Flute');
+  assert.ok(!englishDraft.isError, JSON.stringify(englishDraft));
+  assert.match(englishDraft.content[0].text, /1 instrumental draft · jazz/);
+  assert.equal(englishDraft.structuredContent.candidates[0].music.key, 'C major');
+  assert.ok(!preview.isError, JSON.stringify(preview));
+  const original = await callTool('preview_music', { project_path, section: 'Thème', output_dir: directory });
+  assert.deepEqual(fs.readFileSync(preview.structuredContent.files[0].path),
+    fs.readFileSync(original.structuredContent.files[0].path));
+
+  const englishEnv = { ...process.env, SOUNDMCP_LANG: 'en' };
+  const help = spawnSync(process.execPath, [path.join(root, 'src/cli.js'), 'help'], { env: englishEnv, encoding: 'utf8' });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /Commands\n/);
+  const invalid = spawnSync(process.execPath, [path.join(root, 'src/cli.js'), 'music', '--no-such-option'],
+    { env: englishEnv, encoding: 'utf8' });
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stderr, /Unknown option: --no-such-option/);
 }
 
 async function checkFamily() {
@@ -208,10 +253,12 @@ async function main() {
   const modern = protocol('2025-06-18', project);
   assertAudio(modern.comparison, 2);
   assert.ok(modern.listing.tools.find((tool) => tool.name === 'draft_music').inputSchema.properties.inline_audio);
-  const legacy = protocol('2025-03-26', project);
+  const legacy = protocol('2025-03-26', project, 'en');
   assertAudio(legacy.comparison, 0);
   assert.equal(legacy.listing.tools.find((tool) => tool.name === 'draft_music').inputSchema.properties.inline_audio, undefined);
   console.log('Préécoutes : WAV MCP mono plafonnés et repli vérifié pour les anciens clients.');
+  await checkEnglish(project, modern.listing);
+  console.log('Langue : schémas MCP identiques, textes anglais et lecture d’un projet français vérifiés.');
   await checkFamily();
   await checkAdaptive();
 }

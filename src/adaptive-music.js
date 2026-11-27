@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { renderSong, writeWav } = require('./dsp');
@@ -7,17 +9,20 @@ const { musicClock } = require('./music-clock');
 
 function planAdaptiveMusic(song, options, format) {
   if (options === undefined) return;
-  if (format === 'midi') throw new Error('adaptive nécessite format wav ou both.');
+  if (format === 'midi') throw new Error(ui('adaptive nécessite format wav ou both.', 'adaptive requires format wav or both.'));
   if (!options || typeof options !== 'object' || Array.isArray(options) ||
       Object.keys(options).some((key) => !['loop_region', 'crossfade_ms'].includes(key))) {
-    throw new Error('adaptive attend loop_region et éventuellement crossfade_ms.');
+    throw new Error(ui('adaptive attend loop_region et éventuellement crossfade_ms.', 'adaptive requires loop_region and optionally crossfade_ms.'));
   }
   const { start_bar: first, bars } = options.loop_region ?? {};
   if (!Number.isInteger(first) || first < 2 || !Number.isInteger(bars) || bars < 1 || first + bars > song.bars) {
-    throw new Error('Garde au moins une mesure avant et après adaptive.loop_region pour l’introduction et la sortie.');
+    throw new Error(ui(
+      'Garde au moins une mesure avant et après adaptive.loop_region pour l’introduction et la sortie.',
+      'Leave at least one bar before and after adaptive.loop_region for the intro and outro.',
+    ));
   }
   const crossfade = options.crossfade_ms ?? 25;
-  if (!Number.isFinite(crossfade) || crossfade < 5 || crossfade > 100) throw new Error('adaptive.crossfade_ms attend 5 à 100 ms.');
+  if (!Number.isFinite(crossfade) || crossfade < 5 || crossfade > 100) throw new Error(ui('adaptive.crossfade_ms attend 5 à 100 ms.', 'adaptive.crossfade_ms must be between 5 and 100 ms.'));
   const clock = musicClock(song);
   return {
     start_bar: first, bars,

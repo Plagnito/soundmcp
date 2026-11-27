@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 /**
  * Catalogue de styles musicaux.
  * Chaque style décrit : tempo, gammes, progressions d'accords (en degrés d'échelle),
@@ -11,9 +13,15 @@
 
 const STYLES = {
   ambient: {
-    label: 'Ambient / Atmosphérique',
-    desc: 'Nappes évolutives très douces, échos lointains, éventuelles carillons cristallins. Zéro percussion.',
-    use: ['menus', 'exploration paisible', 'vidéos/ambiance', 'écrans de chargement', 'méditation'],
+    label: ui('Ambient / Atmosphérique', 'Ambient / Atmospheric'),
+    desc: ui(
+      'Nappes évolutives très douces, échos lointains, éventuelles carillons cristallins. Zéro percussion.',
+      'Soft evolving pads, distant echoes, and occasional crystalline chimes. No percussion.',
+    ),
+    use: ui(
+      ['menus', 'exploration paisible', 'vidéos/ambiance', 'écrans de chargement', 'méditation'],
+      ['menus', 'peaceful exploration', 'ambient video', 'loading screens', 'meditation'],
+    ),
     tags: ['calme', 'rêveur', 'cinématique'],
     defaults: { tempo: 66, scalePool: ['lydian', 'major', 'minor'], rootPool: ['C', 'D', 'Eb', 'F', 'G', 'A', 'Bb'], loop: true, duration: 75 },
     progressions: {
@@ -33,9 +41,15 @@ const STYLES = {
   },
 
   lofi: {
-    label: 'Lo-Fi Chill',
-    desc: 'Hip-hop apaisé, accords jazzy 7e/9e, swing doux, piano électrique feutré. La valeur sûre "cozy".',
-    use: ['villes/calmes', 'scènes cozy', 'fond de lecture', 'menus détendus', 'streams/podcasts'],
+    label: ui('Lo-Fi Chill', 'Lo-Fi Chill'),
+    desc: ui(
+      'Hip-hop apaisé, accords jazzy 7e/9e, swing doux, piano électrique feutré. La valeur sûre "cozy".',
+      'Laid-back hip-hop with jazzy seventh and ninth chords, gentle swing, and soft electric piano.',
+    ),
+    use: ui(
+      ['villes/calmes', 'scènes cozy', 'fond de lecture', 'menus détendus', 'streams/podcasts'],
+      ['quiet towns', 'cozy scenes', 'reading', 'relaxed menus', 'streams or podcasts'],
+    ),
     tags: ['chill', 'nostalgique', 'jazzy'],
     defaults: { tempo: 80, scalePool: ['dorian', 'minor'], rootPool: ['F', 'C', 'G', 'A', 'D', 'Eb', 'Bb'], loop: true, duration: 60 },
     progressions: {
@@ -61,9 +75,15 @@ const STYLES = {
   },
 
   chiptune: {
-    label: 'Chiptune 8-bit',
-    desc: 'Rétro jeux d\'arcade : ondes carrées, arpèges rapides, basse qui rebondit sur l\'octave. Énergie NES.',
-    use: ['plateformeurs rétro', 'mini-jeux', 'boss rapides', 'easter eggs', 'jeux pixel-art'],
+    label: ui('Chiptune 8-bit', '8-bit Chiptune'),
+    desc: ui(
+      'Rétro jeux d\'arcade : ondes carrées, arpèges rapides, basse qui rebondit sur l\'octave. Énergie NES.',
+      'Arcade square waves, fast arpeggios, and a bouncing octave bass.',
+    ),
+    use: ui(
+      ['plateformeurs rétro', 'mini-jeux', 'boss rapides', 'easter eggs', 'jeux pixel-art'],
+      ['retro platformers', 'minigames', 'fast bosses', 'Easter eggs', 'pixel-art games'],
+    ),
     tags: ['rétro', 'énergique', '8-bit'],
     defaults: { tempo: 140, scalePool: ['major', 'mixolydian', 'minor'], rootPool: ['C', 'G', 'D', 'A', 'E'], loop: true, duration: 45 },
     progressions: {
@@ -88,9 +108,9 @@ const STYLES = {
   },
 
   epic: {
-    label: 'Épique / Aventure',
-    desc: 'Cordes synthétiques amples, cuivres doux, grosses percussions à mi-tempo. Sensation de grandeur.',
-    use: ['boss/trailer', 'exploration épique', 'victoire', 'bandes-annonces', 'montage vidéo'],
+    label: ui('Épique / Aventure', 'Epic / Adventure'),
+    desc: ui('Cordes synthétiques amples, cuivres doux, grosses percussions à mi-tempo. Sensation de grandeur.', 'Wide synth strings, soft brass, and large half-time drums.'),
+    use: ui(['boss/trailer', 'exploration épique', 'victoire', 'bandes-annonces', 'montage vidéo'], ['bosses', 'epic exploration', 'victory', 'trailers', 'video edits']),
     tags: ['héroïque', 'puissant', 'cinématique'],
     defaults: { tempo: 110, scalePool: ['minor', 'harmonicMinor'], rootPool: ['A', 'D', 'E', 'F', 'G', 'C'], loop: true, duration: 60 },
     progressions: {
@@ -117,9 +137,12 @@ const STYLES = {
   },
 
   mystery: {
-    label: 'Mystère / Tension',
-    desc: 'Mineur voilé, échos longs, percussions rares. Suspend le joueur dans l\'inconnu.',
-    use: ['enigmes', 'donjons mystérieux', 'horizon inconnu', 'cutscenes tendues', 'suspense'],
+    label: ui('Mystère / Tension', 'Mystery / Tension'),
+    desc: ui('Mineur voilé, échos longs, percussions rares. Suspend le joueur dans l\'inconnu.', 'Muted minor harmony, long echoes, and sparse percussion.'),
+    use: ui(
+      ['enigmes', 'donjons mystérieux', 'horizon inconnu', 'cutscenes tendues', 'suspense'],
+      ['puzzles', 'mysterious dungeons', 'unfamiliar horizons', 'tense cutscenes', 'suspense'],
+    ),
     tags: ['sombre', 'tendre', 'inspecteur'],
     defaults: { tempo: 92, scalePool: ['minor', 'phrygian', 'dorian'], rootPool: ['D', 'E', 'A', 'B', 'F#', 'G'], loop: true, duration: 60 },
     progressions: {
@@ -144,9 +167,12 @@ const STYLES = {
   },
 
   fantasy: {
-    label: 'Fantasy / Féerique',
-    desc: 'Harpe arpégée, cloches, cordes douces, pas de batterie agressive. Comptes et légendes.',
-    use: ['villages/rivieres', 'bibliothèques', 'PNJ/amitiés', 'cartes du monde', 'contes'],
+    label: ui('Fantasy / Féerique', 'Fantasy / Fairy Tale'),
+    desc: ui('Harpe arpégée, cloches, cordes douces, pas de batterie agressive. Comptes et légendes.', 'Harp arpeggios, bells, and gentle strings with light percussion.'),
+    use: ui(
+      ['villages/rivieres', 'bibliothèques', 'PNJ/amitiés', 'cartes du monde', 'contes'],
+      ['villages and rivers', 'libraries', 'friendly characters', 'world maps', 'fairy tales'],
+    ),
     tags: ['féerique', 'doux', 'harpe'],
     defaults: { tempo: 96, scalePool: ['major', 'lydian'], rootPool: ['C', 'D', 'Eb', 'F', 'G', 'A', 'Bb'], loop: true, duration: 60 },
     progressions: {
@@ -169,9 +195,12 @@ const STYLES = {
   },
 
   upbeat: {
-    label: 'Upbeat / Joyeux',
-    desc: 'Pop de plateformeur : majeur lumineux, 8ths pumpées, basse qui danse. Sourire garanti.',
-    use: ['plateformeurs', 'tutoriels', 'victoire/crédits', 'mini-jeux', 'pubs'],
+    label: ui('Upbeat / Joyeux', 'Upbeat / Joyful'),
+    desc: ui(
+      'Pop de plateformeur : majeur lumineux, 8ths pumpées, basse qui danse. Sourire garanti.',
+      'Bright platformer pop with pulsing eighth notes and a dancing bass line.',
+    ),
+    use: ui(['plateformeurs', 'tutoriels', 'victoire/crédits', 'mini-jeux', 'pubs'], ['platformers', 'tutorials', 'victory and credits', 'minigames', 'advertisements']),
     tags: ['joyeux', 'énergique', 'pop'],
     defaults: { tempo: 142, scalePool: ['major', 'mixolydian'], rootPool: ['C', 'G', 'D', 'A', 'E', 'F'], loop: true, duration: 45 },
     progressions: {
@@ -197,9 +226,12 @@ const STYLES = {
   },
 
   sad: {
-    label: 'Triste / Émotion',
-    desc: 'Piano lent, accords mineurs riches, silences qui pèsent. Pour les adieux et les souvenirs.',
-    use: ['game over', 'adieux/cutscenes tristes', 'souvenirs', 'credits melancoliques', 'vidéos emotion'],
+    label: ui('Triste / Émotion', 'Melancholy / Emotional'),
+    desc: ui('Piano lent, accords mineurs riches, silences qui pèsent. Pour les adieux et les souvenirs.', 'Slow piano, rich minor chords, and space between phrases.'),
+    use: ui(
+      ['game over', 'adieux/cutscenes tristes', 'souvenirs', 'credits melancoliques', 'vidéos emotion'],
+      ['game over', 'farewells', 'memories', 'melancholy credits', 'emotional video'],
+    ),
     tags: ['émotionnel', 'mélancolique', 'piano'],
     defaults: { tempo: 68, scalePool: ['minor'], rootPool: ['A', 'D', 'E', 'F', 'C', 'G'], loop: false, duration: 60 },
     progressions: {
@@ -217,9 +249,9 @@ const STYLES = {
   },
 
   dungeon: {
-    label: 'Donjon / Sombre',
-    desc: 'Graves profonds, grottes réverbérantes, percussions lentes. Cave, cité perdue, menace.',
-    use: ['donjons/grottes', 'zones dangereuses', 'boss lents', 'ruines', 'horreur douce'],
+    label: ui('Donjon / Sombre', 'Dungeon / Dark'),
+    desc: ui('Graves profonds, grottes réverbérantes, percussions lentes. Cave, cité perdue, menace.', 'Deep lows, cavernous reverb, and slow percussion.'),
+    use: ui(['donjons/grottes', 'zones dangereuses', 'boss lents', 'ruines', 'horreur douce'], ['dungeons and caves', 'danger zones', 'slow bosses', 'ruins', 'light horror']),
     tags: ['sombre', 'caverneux', 'lourd'],
     defaults: { tempo: 76, scalePool: ['phrygian', 'minor'], rootPool: ['D', 'E', 'A', 'G', 'F'], loop: true, duration: 60 },
     progressions: {
@@ -244,9 +276,9 @@ const STYLES = {
   },
 
   menu: {
-    label: 'Menu / Titre',
-    desc: 'Thème de titre : accords 7e chaleureux, carillons, groove léger. Facile à écouter en boucle.',
-    use: ['écran titre', 'menus', 'hall principal', 'carte du monde', 'attente matchmaking'],
+    label: ui('Menu / Titre', 'Menu / Title'),
+    desc: ui('Thème de titre : accords 7e chaleureux, carillons, groove léger. Facile à écouter en boucle.', 'Warm seventh chords, chimes, and a light groove for looping.'),
+    use: ui(['écran titre', 'menus', 'hall principal', 'carte du monde', 'attente matchmaking'], ['title screens', 'menus', 'main halls', 'world maps', 'matchmaking']),
     tags: ['accueillant', 'lisse', 'titre'],
     defaults: { tempo: 100, scalePool: ['major', 'lydian', 'dorian'], rootPool: ['C', 'F', 'G', 'A', 'D', 'Bb', 'Eb'], loop: true, duration: 50 },
     progressions: {
@@ -272,9 +304,15 @@ const STYLES = {
   },
 
   suspense: {
-    label: 'Suspense / Poursuite',
-    desc: 'Pulse obsédant, ostinato nerveux, cordes tendues et percussions ciselées. Infiltration, filature, compte à rebours.',
-    use: ['poursuites', 'infiltration/furtivité', 'thrillers', 'compte à rebours', 'approche du danger'],
+    label: ui('Suspense / Poursuite', 'Suspense / Chase'),
+    desc: ui(
+      'Pulse obsédant, ostinato nerveux, cordes tendues et percussions ciselées. Infiltration, filature, compte à rebours.',
+      'Insistent pulse, nervous ostinato, tense strings, and sharp percussion.',
+    ),
+    use: ui(
+      ['poursuites', 'infiltration/furtivité', 'thrillers', 'compte à rebours', 'approche du danger'],
+      ['chases', 'stealth', 'thrillers', 'countdowns', 'approaching danger'],
+    ),
     tags: ['tendu', 'nervueux', 'obsédant'],
     defaults: { tempo: 104, scalePool: ['phrygian', 'minor'], rootPool: ['D', 'E', 'A', 'B', 'F', 'G'], loop: true, duration: 60 },
     progressions: {
@@ -300,9 +338,12 @@ const STYLES = {
   },
 
   victory: {
-    label: 'Victoire / Triomphe',
-    desc: 'Fanfare lumineuse en majeur, cordes amples, percussions triomphantes et claquements. Boss vaincu, podium, ending.',
-    use: ['victoire de boss', 'écrans de résultat', 'podiums/trophées', 'endings', 'jingles'],
+    label: ui('Victoire / Triomphe', 'Victory / Triumph'),
+    desc: ui(
+      'Fanfare lumineuse en majeur, cordes amples, percussions triomphantes et claquements. Boss vaincu, podium, ending.',
+      'Bright major-key fanfare with wide strings, triumphant drums, and claps.',
+    ),
+    use: ui(['victoire de boss', 'écrans de résultat', 'podiums/trophées', 'endings', 'jingles'], ['boss victories', 'results screens', 'trophies', 'endings', 'jingles']),
     tags: ['triomphant', 'lumineux', 'fanfare'],
     defaults: { tempo: 120, scalePool: ['major'], rootPool: ['C', 'G', 'D', 'A', 'F', 'Bb'], loop: false, duration: 45 },
     progressions: {
@@ -329,9 +370,15 @@ const STYLES = {
   },
 
   village: {
-    label: 'Village / Bourg',
-    desc: 'Thème de bourg chaleureux : flûte souriante, luth arpégé, rythmique légère. Marché, taverne, havre de repos.',
-    use: ['villages/bourgs', 'marchés et tavernes', 'zones sûres', 'PNJ chaleureux', 'maisons/repos'],
+    label: ui('Village / Bourg', 'Village / Town'),
+    desc: ui(
+      'Thème de bourg chaleureux : flûte souriante, luth arpégé, rythmique légère. Marché, taverne, havre de repos.',
+      'A warm town theme with cheery flute, plucked lute, and light rhythm.',
+    ),
+    use: ui(
+      ['villages/bourgs', 'marchés et tavernes', 'zones sûres', 'PNJ chaleureux', 'maisons/repos'],
+      ['villages', 'markets and taverns', 'safe areas', 'friendly characters', 'rest'],
+    ),
     tags: ['chaleureux', 'folk', 'accueil'],
     defaults: { tempo: 108, scalePool: ['major', 'mixolydian', 'lydian'], rootPool: ['C', 'G', 'D', 'A', 'F', 'Bb'], loop: true, duration: 55 },
     progressions: {
@@ -357,9 +404,12 @@ const STYLES = {
   },
 
   combat: {
-    label: 'Combat / Action',
-    desc: 'Thème de bataille nerveux : riffs carrés, basse en galop, double-croches et caisse claire martiale. Boss rapides, affrontements.',
-    use: ['combats/boss rapides', 'arènes', 'escarmouches', 'action intensive', 'duels'],
+    label: ui('Combat / Action', 'Combat / Action'),
+    desc: ui(
+      'Thème de bataille nerveux : riffs carrés, basse en galop, double-croches et caisse claire martiale. Boss rapides, affrontements.',
+      'Square-wave riffs, galloping bass, rapid rhythms, and martial snare.',
+    ),
+    use: ui(['combats/boss rapides', 'arènes', 'escarmouches', 'action intensive', 'duels'], ['fast bosses', 'arenas', 'skirmishes', 'intense action', 'duels']),
     tags: ['agressif', 'rapide', 'riff'],
     defaults: { tempo: 156, scalePool: ['minor', 'phrygian'], rootPool: ['E', 'A', 'D', 'G', 'C', 'B'], loop: true, duration: 45 },
     progressions: {
@@ -385,9 +435,15 @@ const STYLES = {
   },
 
   rock: {
-    label: 'Rock',
-    desc: 'Guitares saturées en power chords, batterie droite qui pousse, riff mémorable. Boss classiques, courses, entraînement.',
-    use: ['boss énergiques', 'courses/poursuites', 'entraînement', 'scènes héroïques', 'arcade nerveux'],
+    label: ui('Rock', 'Rock'),
+    desc: ui(
+      'Guitares saturées en power chords, batterie droite qui pousse, riff mémorable. Boss classiques, courses, entraînement.',
+      'Distorted power chords, driving straight drums, and a memorable riff.',
+    ),
+    use: ui(
+      ['boss énergiques', 'courses/poursuites', 'entraînement', 'scènes héroïques', 'arcade nerveux'],
+      ['energetic bosses', 'racing and chases', 'training', 'heroic scenes', 'arcade action'],
+    ),
     tags: ['saturé', 'puissant', 'riff'],
     defaults: { tempo: 138, scalePool: ['minor', 'mixolydian'], rootPool: ['E', 'A', 'D', 'G', 'C'], loop: true, duration: 50 },
     progressions: {
@@ -413,9 +469,15 @@ const STYLES = {
   },
 
   jazz: {
-    label: 'Jazz Combo',
-    desc: 'Quartet jazzy : accords 7e/9e, walking bass, piano nerveux, cymbales feutrées. Bar chic, casino, interrogation.',
-    use: ['bars/casinos', 'scènes de nuit', 'détective/interrogatoire', 'villes chics', 'menus élégants'],
+    label: ui('Jazz Combo', 'Jazz Combo'),
+    desc: ui(
+      'Quartet jazzy : accords 7e/9e, walking bass, piano nerveux, cymbales feutrées. Bar chic, casino, interrogation.',
+      'Jazz quartet with extended chords, walking bass, nimble piano, and soft cymbals.',
+    ),
+    use: ui(
+      ['bars/casinos', 'scènes de nuit', 'détective/interrogatoire', 'villes chics', 'menus élégants'],
+      ['bars and casinos', 'night scenes', 'detective stories', 'stylish cities', 'elegant menus'],
+    ),
     tags: ['jazzy', 'chic', 'balancé'],
     defaults: { tempo: 112, scalePool: ['dorian', 'minor', 'mixolydian'], rootPool: ['D', 'G', 'C', 'F', 'Bb', 'A'], loop: true, duration: 55 },
     progressions: {
@@ -443,9 +505,15 @@ const STYLES = {
   },
 
   horror: {
-    label: 'Horreur / Tension',
-    desc: 'Nappes sombres dissonantes, cloches fantomatiques, bourdon grave et respiration lente. Peur, vide, chose qui vient.',
-    use: ['sections d\'horreur', 'chases lentes', 'sanité', 'villes mortes', 'jump-scares (fond)'],
+    label: ui('Horreur / Tension', 'Horror / Tension'),
+    desc: ui(
+      'Nappes sombres dissonantes, cloches fantomatiques, bourdon grave et respiration lente. Peur, vide, chose qui vient.',
+      'Dark dissonant pads, ghostly bells, a low drone, and slow breathing.',
+    ),
+    use: ui(
+      ['sections d\'horreur', 'chases lentes', 'sanité', 'villes mortes', 'jump-scares (fond)'],
+      ['horror scenes', 'slow chases', 'eerie settings', 'deserted towns', 'jump-scare buildup'],
+    ),
     tags: ['sombre', 'dissonant', 'angoissant'],
     defaults: { tempo: 64, scalePool: ['harmonicMinor', 'phrygian'], rootPool: ['D', 'A', 'Eb', 'F', 'B'], loop: true, duration: 60 },
     progressions: {
@@ -464,9 +532,15 @@ const STYLES = {
   },
 
   hiphop: {
-    label: 'Hip-Hop Boom-Bap',
-    desc: 'Boom-bap assuré : kick qui claque, caisse sèche, piano jazzy, basse ronde. Victoires urbaines, menus confidence.',
-    use: ['urbain/street', 'menus stylés', 'réflexion posée', 'montages vidéo', 'défaite fière'],
+    label: ui('Hip-Hop Boom-Bap', 'Hip-Hop Boom-Bap'),
+    desc: ui(
+      'Boom-bap assuré : kick qui claque, caisse sèche, piano jazzy, basse ronde. Victoires urbaines, menus confidence.',
+      'Punchy kick, dry snare, jazzy piano, and a round bass line.',
+    ),
+    use: ui(
+      ['urbain/street', 'menus stylés', 'réflexion posée', 'montages vidéo', 'défaite fière'],
+      ['urban scenes', 'stylish menus', 'quiet reflection', 'video edits', 'defiant defeat'],
+    ),
     tags: ['beats', 'assuré', 'urbain'],
     defaults: { tempo: 90, scalePool: ['minor', 'dorian'], rootPool: ['C', 'F', 'G', 'A', 'D', 'Eb'], loop: true, duration: 50 },
     progressions: {
@@ -492,9 +566,15 @@ const STYLES = {
   },
 
   space: {
-    label: 'Espace / Étoiles',
-    desc: 'Immense et flottant : nappes lydiennes cristallines, carillons qui s\'évaporent, basse quasi-absente. Cosmos, menus majestueux.',
-    use: ['espace/sommeil', 'menus majestueux', 'zones oniriques', 'crédits', 'vidéos contemplatives'],
+    label: ui('Espace / Étoiles', 'Space / Stars'),
+    desc: ui(
+      'Immense et flottant : nappes lydiennes cristallines, carillons qui s\'évaporent, basse quasi-absente. Cosmos, menus majestueux.',
+      'Vast floating Lydian pads, fading crystal chimes, and a very light bass.',
+    ),
+    use: ui(
+      ['espace/sommeil', 'menus majestueux', 'zones oniriques', 'crédits', 'vidéos contemplatives'],
+      ['space and sleep', 'majestic menus', 'dreamlike places', 'credits', 'contemplative video'],
+    ),
     tags: ['flottant', 'vast', 'cristallin'],
     defaults: { tempo: 66, scalePool: ['lydian', 'major'], rootPool: ['C', 'G', 'D', 'A', 'E', 'B'], loop: true, duration: 70 },
     progressions: {

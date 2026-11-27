@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { ARTICULATIONS } = require('./arrangement');
 const { createPatch, normalizeGesture, readPatch, supportsGesture } = require('./custom-patch');
 const { renderSong } = require('./dsp');
@@ -9,13 +11,13 @@ const { midiToFreq } = require('./theory');
 const { SOUNDS, STUDIO_INSTRUMENTS } = require('./texture-voices');
 
 const BASE_STUDIO_SOUNDS = {
-  piano: ['Piano à queue', 'Piano Steinway B, prises à plusieurs nuances.', 'mel', 60],
-  upright: ['Contrebasse', 'Contrebasse pizzicato, attaque ronde et grave.', 'bass', 36],
-  strings: ['Ensemble de violons', 'Cordes à l’archet ou en pizzicato.', 'pad', 60],
-  flute: ['Flûte', 'Attaque soufflée, tenue et staccato.', 'mel', 74],
-  clarinet: ['Clarinette', 'Bois au registre grave rond, avec liaisons en palette Studio.', 'mel', 60],
-  brass: ['Cor', 'Cuivre rond, du jeu tenu aux accents détachés.', 'mel', 58],
-  'acoustic-guitar': ['Guitare acoustique', 'Prises de guitare archtop au microphone.', 'arp', 55],
+  piano: [ui('Piano à queue', 'Grand piano'), ui('Piano Steinway B, prises à plusieurs nuances.', 'Steinway B sampled at multiple dynamics.'), 'mel', 60],
+  upright: [ui('Contrebasse', 'Upright bass'), ui('Contrebasse pizzicato, attaque ronde et grave.', 'Pizzicato double bass with a rounded low attack.'), 'bass', 36],
+  strings: [ui('Ensemble de violons', 'Violin ensemble'), ui('Cordes à l’archet ou en pizzicato.', 'Bowed or pizzicato strings.'), 'pad', 60],
+  flute: [ui('Flûte', 'Flute'), ui('Attaque soufflée, tenue et staccato.', 'Breathy attack with sustained and staccato articulations.'), 'mel', 74],
+  clarinet: [ui('Clarinette', 'Clarinet'), ui('Bois au registre grave rond, avec liaisons en palette Studio.', 'Rounded low register with legato transitions in the Studio palette.'), 'mel', 60],
+  brass: [ui('Cor', 'French horn'), ui('Cuivre rond, du jeu tenu aux accents détachés.', 'Rounded brass, from sustained notes to detached accents.'), 'mel', 58],
+  'acoustic-guitar': [ui('Guitare acoustique', 'Acoustic guitar'), ui('Prises de guitare archtop au microphone.', 'Archtop guitar recorded by microphone.'), 'arp', 55],
 };
 const AUDITION_SOUNDS = { ...SOUNDS, ...BASE_STUDIO_SOUNDS };
 const RECORDED_SOUNDS = new Set([...STUDIO_INSTRUMENTS, ...Object.keys(BASE_STUDIO_SOUNDS)]);
@@ -31,37 +33,38 @@ const within = (v, low, high) => Number.isFinite(v) && v >= low && v <= high;
 
 function loadPatch(source) {
   if (!source || typeof source !== 'object' || (source.patch_path === undefined) === (source.patch === undefined)) {
-    throw new Error('Indique un patch ou un patch_path par son.');
+    throw new Error(ui('Indique un patch ou un patch_path par son.', 'Supply a patch or patch_path for each sound.'));
   }
-  return source.patch_path === undefined ? createPatch(source.title ?? 'Son personnel', source.patch) : readPatch(source.patch_path);
+  return source.patch_path === undefined
+    ? createPatch(source.title ?? ui('Son personnel', 'Custom sound'), source.patch) : readPatch(source.patch_path);
 }
 
 function loadSound(source) {
   const id = source?.instrument;
   if (id === undefined) return loadPatch(source);
-  if (source.patch !== undefined || source.patch_path !== undefined) throw new Error('Indique un seul de instrument, patch ou patch_path.');
-  if (typeof id !== 'string' || !Object.hasOwn(AUDITION_SOUNDS, id)) throw new Error('Instrument inconnu. Consulte la catégorie sounds de list_catalog.');
+  if (source.patch !== undefined || source.patch_path !== undefined) throw new Error(ui('Indique un seul de instrument, patch ou patch_path.', 'Supply only one of instrument, patch, or patch_path.'));
+  if (typeof id !== 'string' || !Object.hasOwn(AUDITION_SOUNDS, id)) throw new Error(ui('Instrument inconnu. Consulte la catégorie sounds de list_catalog.', 'Unknown instrument. See the sounds category of list_catalog.'));
   const [label, , part] = AUDITION_SOUNDS[id];
   return { id, label: source.title ?? label, part };
 }
 
 function readPhrase(args, seed) {
   const notes = args.notes ?? DEFAULT_PHRASE;
-  if (!Array.isArray(notes) || !notes.length || notes.length > 32) throw new Error('notes attend entre 1 et 32 notes.');
+  if (!Array.isArray(notes) || !notes.length || notes.length > 32) throw new Error(ui('notes attend entre 1 et 32 notes.', 'notes must contain 1 to 32 notes.'));
   let last = 0;
   const events = notes.map((note, i) => {
-    if (!note || typeof note !== 'object') throw new Error(`Note ${i + 1} invalide.`);
+    if (!note || typeof note !== 'object') throw new Error(ui(`Note ${i + 1} invalide.`, `Invalid note ${i + 1}.`));
     const { at, pitch, duration = 0.55, velocity = 0.72, pan = 0, timbre, articulation, expression } = note;
     if (!within(at, 0, 14) || !within(duration, 0.025, 8) || !within(velocity, 0.05, 1) || !within(pan, -1, 1) ||
         (timbre !== undefined && !within(timbre, 0, 1)) || (articulation !== undefined && !ARTICULATIONS.includes(articulation)) ||
-        (expression !== undefined && !validExpression(expression))) throw new Error(`Temps, durée, nuance ou articulation invalide dans la note ${i + 1}.`);
+        (expression !== undefined && !validExpression(expression))) throw new Error(ui(`Temps, durée, nuance ou articulation invalide dans la note ${i + 1}.`, `Invalid onset, duration, velocity, or articulation in note ${i + 1}.`));
     const midi = noteNumber(pitch);
     last = Math.max(last, at + duration);
     return { t: at, dur: duration, midi, freq: midiToFreq(midi), vel: velocity, pan, timbre, articulation, expression,
       gesture: normalizeGesture(note.gesture), bus: 'mel', seedIdx: hash32(seed, i + 1) };
   });
   const tail = args.tail_seconds ?? 1.45;
-  if (!within(tail, 0.12, 6) || last + tail > 24) throw new Error('tail_seconds attend 0.12 à 6 s et le rendu doit tenir en 24 s.');
+  if (!within(tail, 0.12, 6) || last + tail > 24) throw new Error(ui('tail_seconds attend 0.12 à 6 s et le rendu doit tenir en 24 s.', 'tail_seconds must be 0.12 to 6 s and the full render must fit within 24 s.'));
   return { events, last, tail };
 }
 
@@ -74,7 +77,10 @@ function playPhrase(sound, { sr, mono }, phrase) {
     ...(sound.patch ? { patches: { [sound.id]: sound.patch } } : { palette: 'studio', bankVersion: 3 }) });
 }
 
-const SUFFIX = { brighter: 'plus brillant', darker: 'plus sombre', shorter: 'plus bref', longer: 'plus long' };
+const SUFFIX = {
+  brighter: ui('plus brillant', 'brighter'), darker: ui('plus sombre', 'darker'),
+  shorter: ui('plus bref', 'shorter'), longer: ui('plus long', 'longer'),
+};
 
 function variantSound(sound, direction, amount) {
   const patch = structuredClone(sound.patch);

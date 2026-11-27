@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 /**
  * Ambiances de jeu en boucle parfaite : pluie, orage, vent, forêt, feu de camp,
  * océan, rivière, grotte, vaisseau, café, nuit. Zéro dépendance.
@@ -326,7 +328,7 @@ function scheduleEvents(fn, mix, rng, durSec, seed) {
 
 const AMBIENCE_KINDS = {
   rain: {
-    desc: 'Pluie fine sur un feuillage : souffle grave doux, sizzle des gouttes, pluches éparses.',
+    desc: ui('Pluie fine sur un feuillage : souffle grave doux, sizzle des gouttes, pluches éparses.', 'Light rain on leaves with a soft low wash and scattered droplets.'),
     defaultSec: 45,
     bed(rng) {
       return [
@@ -344,7 +346,7 @@ const AMBIENCE_KINDS = {
   },
 
   storm: {
-    desc: 'Orage : pluie dense, vent qui se lève, coups de tonnerre espacés.',
+    desc: ui('Orage : pluie dense, vent qui se lève, coups de tonnerre espacés.', 'Heavy rain, rising wind, and occasional thunder.'),
     defaultSec: 60,
     bed(rng) {
       return [
@@ -362,7 +364,7 @@ const AMBIENCE_KINDS = {
   },
 
   wind: {
-    desc: 'Vent : souffle ample qui va et vient, sifflement léger sur les crêtes.',
+    desc: ui('Vent : souffle ample qui va et vient, sifflement léger sur les crêtes.', 'Broad gusts of wind with a light whistle.'),
     defaultSec: 50,
     bed(rng) {
       return [
@@ -380,7 +382,7 @@ const AMBIENCE_KINDS = {
   },
 
   forest: {
-    desc: 'Forêt de jour : brise dans les feuilles, feuillages frottés, oiseaux épars.',
+    desc: ui('Forêt de jour : brise dans les feuilles, feuillages frottés, oiseaux épars.', 'Daytime forest with a breeze, rustling leaves, and scattered birds.'),
     defaultSec: 55,
     bed(rng) {
       return [
@@ -397,7 +399,7 @@ const AMBIENCE_KINDS = {
   },
 
   campfire: {
-    desc: 'Feu de camp : ronron chaud, crépitements vifs, occasionnels petits éclats.',
+    desc: ui('Feu de camp : ronron chaud, crépitements vifs, occasionnels petits éclats.', 'Warm campfire with lively crackling and occasional pops.'),
     defaultSec: 45,
     bed(rng) {
       return [
@@ -422,7 +424,7 @@ const AMBIENCE_KINDS = {
   },
 
   ocean: {
-    desc: 'Océan : longues vagues qui montent et retombent, écume sur le sable.',
+    desc: ui('Océan : longues vagues qui montent et retombent, écume sur le sable.', 'Long ocean waves breaking into foam on the sand.'),
     defaultSec: 60,
     bed(rng) {
       return [
@@ -438,7 +440,7 @@ const AMBIENCE_KINDS = {
   },
 
   river: {
-    desc: 'Rivière : clapotis continu de l\'eau qui court, remous et petites vagues.',
+    desc: ui('Rivière : clapotis continu de l\'eau qui court, remous et petites vagues.', 'Running river with ripples and small eddies.'),
     defaultSec: 45,
     bed(rng) {
       return [
@@ -455,7 +457,7 @@ const AMBIENCE_KINDS = {
   },
 
   cave: {
-    desc: 'Grotte : gravité sourde, gouttes d\'eau qui résonnent avec leur écho.',
+    desc: ui('Grotte : gravité sourde, gouttes d\'eau qui résonnent avec leur écho.', 'Low cave ambience with resonant water drops.'),
     defaultSec: 60,
     bed(rng) {
       return [
@@ -481,7 +483,7 @@ const AMBIENCE_KINDS = {
   },
 
   spaceship: {
-    desc: 'Vaisseau : hum grave des moteurs, souffle de ventilation, bips rares.',
+    desc: ui('Vaisseau : hum grave des moteurs, souffle de ventilation, bips rares.', 'Low engine hum, ventilation, and rare beeps.'),
     defaultSec: 50,
     bed(rng) {
       return [
@@ -500,7 +502,7 @@ const AMBIENCE_KINDS = {
   },
 
   cafe: {
-    desc: 'Café : brouhaha de conversations, tintements de tasses, mouvement feutré.',
+    desc: ui('Café : brouhaha de conversations, tintements de tasses, mouvement feutré.', 'Muffled conversation, clinking cups, and quiet movement.'),
     defaultSec: 55,
     bed(rng) {
       return [
@@ -517,7 +519,7 @@ const AMBIENCE_KINDS = {
   },
 
   night: {
-    desc: 'Nuit calme : très bas, grillons stridulants, chouette au loin, brise légère.',
+    desc: ui('Nuit calme : très bas, grillons stridulants, chouette au loin, brise légère.', 'Quiet night with crickets, a distant owl, and a light breeze.'),
     defaultSec: 60,
     bed(rng) {
       return [
@@ -554,7 +556,7 @@ const AMBIENCE_IDS = Object.keys(AMBIENCE_KINDS);
  */
 function createAmbience(kind, opts = {}) {
   const def = AMBIENCE_KINDS[kind];
-  if (!def) throw new Error(`Ambiance inconnue: ${kind}. Disponibles: ${AMBIENCE_IDS.join(', ')}`);
+  if (!def) throw new Error(ui(`Ambiance inconnue: ${kind}. Disponibles: ${AMBIENCE_IDS.join(', ')}`, `Unknown ambience: ${kind}. Available: ${AMBIENCE_IDS.join(', ')}`));
   const seed = opts.seed == null ? randomSeed() : opts.seed >>> 0;
   const rng = makeRng(seed);
   const sr = opts.sr || 44100;

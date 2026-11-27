@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { existsSync, readFileSync } = require('node:fs');
 const { createHash } = require('node:crypto');
 const { join } = require('node:path');
@@ -54,12 +56,12 @@ function readBank(manifestName, pcmName, verify = false) {
   const raw = existsSync(pcmPath);
   const pcm = raw ? readFileSync(pcmPath) : unpackPcm(readFileSync(`${pcmPath}.br`), samples);
   if ((verify || !raw) && createHash('sha256').update(pcm).digest('hex') !== sha256) {
-    throw new Error('La banque Studio est incomplète ou altérée.');
+    throw new Error(ui('La banque Studio est incomplète ou altérée.', 'The Studio bank is incomplete or damaged.'));
   }
   const instruments = new Map();
   for (const sample of samples) {
     const limit = sample.offset + sample.frames * sample.channels * 2;
-    if (limit > pcm.length) throw new Error('La banque studio est incomplète.');
+    if (limit > pcm.length) throw new Error(ui('La banque studio est incomplète.', 'The Studio bank is incomplete.'));
     if (!instruments.has(sample.instrument)) instruments.set(sample.instrument, []);
     instruments.get(sample.instrument).push(sample);
   }

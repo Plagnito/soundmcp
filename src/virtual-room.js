@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const DISTANCE = { mel: 0.18, pad: 0.74, arp: 0.34, counter: 0.47, texture: 0.77, bass: 0.27, drum: 0.43 };
 const REFLECTIONS = [
   [0.0064, 0.0092, 0.42, 0.22],
@@ -15,12 +17,12 @@ function readRoom(value) {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'object' || Array.isArray(value) ||
       Object.keys(value).some((k) => !['amount', 'size', 'damping', 'distance'].includes(k))) {
-    throw new Error('room attend amount, size, damping et distance.');
+    throw new Error(ui('room attend amount, size, damping et distance.', 'room accepts amount, size, damping, and distance.'));
   }
   const { amount = 0.58, size = 0.52, damping = 0.58, distance = {} } = value;
   if (![amount, size, damping].every(unit) || !distance || typeof distance !== 'object' || Array.isArray(distance) ||
       Object.entries(distance).some(([part, depth]) => !Object.hasOwn(DISTANCE, part) || !unit(depth))) {
-    throw new Error('Les réglages de room et les distances par pupitre doivent être entre 0 et 1.');
+    throw new Error(ui('Les réglages de room et les distances par pupitre doivent être entre 0 et 1.', 'room settings and per-part distances must be between 0 and 1.'));
   }
   return { amount, size, damping, distance };
 }

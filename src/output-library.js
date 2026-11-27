@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
@@ -18,10 +20,10 @@ function lstat(file) {
 }
 
 function inside(root, relative) {
-  if (typeof relative !== 'string' || !relative || path.isAbsolute(relative)) throw new Error('Chemin de sortie invalide.');
+  if (typeof relative !== 'string' || !relative || path.isAbsolute(relative)) throw new Error(ui('Chemin de sortie invalide.', 'Invalid output path.'));
   const resolved = path.resolve(root, relative);
   const back = path.relative(root, resolved);
-  if (!back || back === '..' || back.startsWith(`..${path.sep}`) || path.isAbsolute(back)) throw new Error('Fichier hors du dossier de sortie.');
+  if (!back || back === '..' || back.startsWith(`..${path.sep}`) || path.isAbsolute(back)) throw new Error(ui('Fichier hors du dossier de sortie.', 'File is outside the output directory.'));
   return resolved;
 }
 
@@ -31,7 +33,7 @@ function directory(location, create = false) {
     fs.mkdirSync(location, { recursive: true });
     current = lstat(location);
   }
-  if (current && !current.isDirectory()) throw new Error('Dossier de gestion des sorties invalide.');
+  if (current && !current.isDirectory()) throw new Error(ui('Dossier de gestion des sorties invalide.', 'Invalid output library directory.'));
   return current ? location : undefined;
 }
 
@@ -73,14 +75,14 @@ function recordOutputs(outputDir, tool, files, renderSettings, settingsByFile) {
 
 function readRecord(store, id) {
   const file = path.join(store.base, `${id}.json`);
-  if (!lstat(file)?.isFile()) throw new Error('Sortie inconnue dans ce dossier.');
+  if (!lstat(file)?.isFile()) throw new Error(ui('Sortie inconnue dans ce dossier.', 'Output not found in this directory.'));
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
 function locate(store, id, entry) {
   const original = inside(store.root, entry.relative);
   if (typeof entry.fingerprint !== 'string' || !path.relative(store.base, original).startsWith(`..${path.sep}`)) {
-    throw new Error('Enregistrement de sortie invalide.');
+    throw new Error(ui('Enregistrement de sortie invalide.', 'Invalid output record.'));
   }
   const archived = store.archive && inside(store.archive, id.replace(':', '-') + path.extname(original));
   return { original, archived, active: fingerprint(original) === entry.fingerprint,
@@ -94,7 +96,7 @@ function ensureParent(root, destination) {
     current = path.join(current, part);
     directory(current, true);
   }
-  if (path.relative(current, fs.realpathSync(current))) throw new Error('Le dossier de destination a été redirigé.');
+  if (path.relative(current, fs.realpathSync(current))) throw new Error(ui('Le dossier de destination a été redirigé.', 'The destination directory was redirected.'));
 }
 
 function moveToFreePath(source, destination) {
@@ -102,7 +104,7 @@ function moveToFreePath(source, destination) {
   try {
     handle = fs.openSync(destination, 'wx');
   } catch (error) {
-    if (error.code === 'EEXIST') throw new Error('Un autre fichier occupe le chemin de destination.');
+    if (error.code === 'EEXIST') throw new Error(ui('Un autre fichier occupe le chemin de destination.', 'Another file already exists at the destination.'));
     throw error;
   }
   fs.closeSync(handle);
@@ -116,10 +118,10 @@ function moveToFreePath(source, destination) {
 
 function listOutputs(outputDir, store, { file_type, state, offset = 0, limit = 30 } = {}) {
   if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) {
-    throw new Error('offset doit être positif ou nul et limit compris entre 1 et 100.');
+    throw new Error(ui('offset doit être positif ou nul et limit compris entre 1 et 100.', 'offset must be zero or greater, and limit must be between 1 and 100.'));
   }
-  if (file_type !== undefined && file_type !== 'project') throw new Error('file_type attend project.');
-  if (state !== undefined && !STATES.includes(state)) throw new Error('state attend active ou archived.');
+  if (file_type !== undefined && file_type !== 'project') throw new Error(ui('file_type attend project.', 'file_type must be project.'));
+  if (state !== undefined && !STATES.includes(state)) throw new Error(ui('state attend active ou archived.', 'state must be active or archived.'));
   const files = [];
   for (const name of store ? fs.readdirSync(store.base) : []) {
     if (!name.endsWith('.json') || !RECORD_ID.test(name.slice(0, -5))) continue;
@@ -142,10 +144,10 @@ function listOutputs(outputDir, store, { file_type, state, offset = 0, limit = 3
 
 function registeredOutput(store, id) {
   const [recordId, index, rest] = typeof id === 'string' ? id.split(':') : [];
-  if (!store || !RECORD_ID.test(recordId ?? '') || !/^\d+$/.test(index ?? '') || rest !== undefined) throw new Error('Utilise un file_id renvoyé par manage_outputs dans le même dossier.');
+  if (!store || !RECORD_ID.test(recordId ?? '') || !/^\d+$/.test(index ?? '') || rest !== undefined) throw new Error(ui('Utilise un file_id renvoyé par manage_outputs dans le même dossier.', 'Use a file_id returned by manage_outputs in the same directory.'));
   const record = readRecord(store, recordId);
   const entry = record.entries[Number(index)];
-  if (!entry) throw new Error('Sortie inconnue dans ce dossier.');
+  if (!entry) throw new Error(ui('Sortie inconnue dans ce dossier.', 'Output not found in this directory.'));
   const canonicalId = `${recordId}:${Number(index)}`;
   return { record, entry, canonicalId };
 }
@@ -154,14 +156,17 @@ function outputRenderSettings(outputDir, id, tool) {
   const { record, entry } = registeredOutput(library(outputDir), id);
   const settings = entry.render_settings ?? record.render_settings;
   if (record.tool !== tool || !settings) {
-    throw new Error(`Ce fichier ne contient pas de réglages réutilisables avec ${tool}. Indique kind pour créer un nouveau rendu.`);
+    throw new Error(ui(
+      `Ce fichier ne contient pas de réglages réutilisables avec ${tool}. Indique kind pour créer un nouveau rendu.`,
+      `This file has no settings that can be reused by ${tool}. Use kind for a new render.`,
+    ));
   }
   return settings;
 }
 
 function manageOutputs(outputDir, args) {
   const { action, file_id: id } = args;
-  if (!ACTIONS.includes(action)) throw new Error('action attend list, archive ou restore.');
+  if (!ACTIONS.includes(action)) throw new Error(ui('action attend list, archive ou restore.', 'action must be list, archive, or restore.'));
   const store = library(outputDir);
   if (action === 'list') return listOutputs(outputDir, store, args);
   const { entry, canonicalId } = registeredOutput(store, id);
@@ -169,7 +174,7 @@ function manageOutputs(outputDir, args) {
   try {
     fs.mkdirSync(lock);
   } catch (error) {
-    if (error.code === 'EEXIST') throw new Error('Une opération est déjà en cours pour cette sortie.');
+    if (error.code === 'EEXIST') throw new Error(ui('Une opération est déjà en cours pour cette sortie.', 'An operation is already in progress for this output.'));
     throw error;
   }
   try {
@@ -180,12 +185,12 @@ function manageOutputs(outputDir, args) {
     const ready = restoring ? saved : active;
     const already = restoring ? active : saved;
     if (ready && !already) {
-      if (!destination) throw new Error('Dossier d’archivage absent.');
+      if (!destination) throw new Error(ui('Dossier d’archivage absent.', 'Archive directory is missing.'));
       ensureParent(store.root, destination);
-      if (fingerprint(source) !== entry.fingerprint) throw new Error('Le fichier a changé pendant le déplacement.');
+      if (fingerprint(source) !== entry.fingerprint) throw new Error(ui('Le fichier a changé pendant le déplacement.', 'The file changed during the move.'));
       moveToFreePath(source, destination);
     } else if (!already) {
-      throw new Error('La sortie a été déplacée, remplacée ou modifiée.');
+      throw new Error(ui('La sortie a été déplacée, remplacée ou modifiée.', 'The output was moved, replaced, or modified.'));
     }
     return { file_id: canonicalId, path: original, state: restoring ? 'active' : 'archived', output_dir: outputDir, ...(!restoring ? { archive_path: archived } : {}) };
   } finally {

@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const fs = require('node:fs');
 const { renderEventsInto } = require('./dsp');
 const { localRms } = require('./music-analysis');
@@ -46,11 +48,11 @@ function probe(sound, role, midi, velocity, seed) {
 }
 
 function calibrateSound(sound, role, pitches, seed) {
-  if (!PATCH_ROLES.includes(role)) throw new Error(`Pupitre de calibration inconnu : ${role}.`);
+  if (!PATCH_ROLES.includes(role)) throw new Error(ui(`Pupitre de calibration inconnu : ${role}.`, `Unknown calibration part: ${role}.`));
   const notes = pitches ?? (role === 'bass' ? [36, 48, 60] : [48, 60, 72]);
-  if (!Array.isArray(notes) || notes.length < 3 || notes.length > 6) throw new Error('notes attend 3 à 6 hauteurs pour la calibration.');
+  if (!Array.isArray(notes) || notes.length < 3 || notes.length > 6) throw new Error(ui('notes attend 3 à 6 hauteurs pour la calibration.', 'notes requires 3 to 6 pitches for calibration.'));
   const registers = notes.map(noteNumber).sort((a, b) => a - b);
-  if (new Set(registers).size !== registers.length) throw new Error('Les hauteurs de calibration doivent être différentes.');
+  if (new Set(registers).size !== registers.length) throw new Error(ui('Les hauteurs de calibration doivent être différentes.', 'Calibration pitches must be distinct.'));
   const probes = registers.flatMap((midi) => VELOCITIES.map((velocity) => probe(sound, role, midi, velocity, hash32(seed, midi))));
   const middle = probes.filter(({ velocity }) => velocity === VELOCITIES[1]);
   const points = middle.map(({ midi, rmsDbfs }) => ({
@@ -73,11 +75,11 @@ function calibrateSound(sound, role, pitches, seed) {
 function loadCalibrations(paths) {
   if (paths === undefined) return [];
   if (!Array.isArray(paths) || paths.length > 16 || paths.some((file) => typeof file !== 'string' || !file.trim())) {
-    throw new Error('calibration_paths attend jusqu’à 16 chemins.');
+    throw new Error(ui('calibration_paths attend jusqu’à 16 chemins.', 'calibration_paths allows up to 16 paths.'));
   }
   const keys = new Set();
   return paths.map((file) => {
-    if (fs.statSync(file).size > 64 * 1024) throw new Error('Calibration trop volumineuse.');
+    if (fs.statSync(file).size > 64 * 1024) throw new Error(ui('Calibration trop volumineuse.', 'Calibration file is too large.'));
     const data = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
     const { sound, role, points } = data ?? {};
     const key = `${sound}/${role}`;
@@ -85,7 +87,7 @@ function loadCalibrations(paths) {
         !Array.isArray(points) || points.length < 3 || points.length > 6 || points.some((point, i) =>
           !Number.isInteger(point?.midi) || point.midi < 0 || point.midi > 127 || (i && point.midi <= points[i - 1]?.midi) ||
           !Number.isFinite(point.gain_db) || Math.abs(point.gain_db) > 6) || keys.has(key)) {
-      throw new Error(`Calibration SoundMCP invalide ou en double : ${file}.`);
+      throw new Error(ui(`Calibration SoundMCP invalide ou en double : ${file}.`, `Invalid or duplicate SoundMCP calibration: ${file}.`));
     }
     keys.add(key);
     return { key, points };
@@ -114,7 +116,7 @@ function applyCalibrations(song, calibrations, { requireMatch = true } = {}) {
   });
   if (requireMatch && matched.size !== byVoice.size) {
     const missing = [...byVoice.keys()].filter((key) => !matched.has(key));
-    throw new Error(`Aucune note à calibrer pour ${missing.join(', ')}.`);
+    throw new Error(ui(`Aucune note à calibrer pour ${missing.join(', ')}.`, `No notes to calibrate for ${missing.join(', ')}.`));
   }
   return { ...song, events };
 }

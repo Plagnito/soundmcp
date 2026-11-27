@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const ROLES = {
   mel: { delay: 0.013, timing: 1, accents: 1, gate: 1 },
@@ -14,10 +16,10 @@ const ROLES = {
 function readPerformance(value) {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'object' || Array.isArray(value) ||
-      Object.keys(value).some((k) => k !== 'amount' && k !== 'parts')) throw new Error('performance attend amount et parts.');
+      Object.keys(value).some((k) => k !== 'amount' && k !== 'parts')) throw new Error(ui('performance attend amount et parts.', 'performance accepts amount and parts.'));
   const { amount = 0.72, parts = Object.keys(ROLES).filter((part) => part !== 'texture') } = value;
   if (!Number.isFinite(amount) || amount < 0 || amount > 1 || !Array.isArray(parts) || !parts.length ||
-      parts.some((part) => !Object.hasOwn(ROLES, part)) || new Set(parts).size !== parts.length) throw new Error('performance attend une intensité de 0 à 1 et des pupitres distincts.');
+      parts.some((part) => !Object.hasOwn(ROLES, part)) || new Set(parts).size !== parts.length) throw new Error(ui('performance attend une intensité de 0 à 1 et des pupitres distincts.', 'performance requires an intensity from 0 to 1 and distinct parts.'));
   return { amount, parts };
 }
 

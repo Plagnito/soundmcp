@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const CONTOURS = ['progressive', 'break'];
 const MAX_BEFORE = 8;
 const PART_LEVELS = {
@@ -8,24 +10,24 @@ const PART_LEVELS = {
 
 function buildWindow(song, { arrival_bar: arrival, before_bars: before } = {}) {
   if (!Number.isInteger(arrival) || arrival < 2 || arrival > song.bars) {
-    throw new Error('arrival_bar attend une mesure existante après la première.');
+    throw new Error(ui('arrival_bar attend une mesure existante après la première.', 'arrival_bar must be an existing bar after the first.'));
   }
   const bars = before ?? Math.min(3, arrival - 1);
   if (!Number.isInteger(bars) || bars < 1 || bars > Math.min(MAX_BEFORE, arrival - 1)) {
-    throw new Error('before_bars attend entre 1 et 8 mesures disponibles avant l’arrivée.');
+    throw new Error(ui('before_bars attend entre 1 et 8 mesures disponibles avant l’arrivée.', 'before_bars must be between 1 and 8 bars available before the arrival.'));
   }
   return { start: (arrival - 1 - bars) * 4, arrival: (arrival - 1) * 4 };
 }
 
 function validateBuilds(builds, beats) {
   if (builds === undefined) return;
-  if (!Array.isArray(builds)) throw new Error('Courbes de montée invalides.');
+  if (!Array.isArray(builds)) throw new Error(ui('Courbes de montée invalides.', 'Invalid build curves.'));
   let end = 0;
   for (const b of builds) {
     if (!b || ![b.start, b.arrival, b.from, b.to].every(Number.isFinite) || b.start > b.from || b.arrival < b.to ||
         b.from < end || b.from >= b.to || b.to > beats || b.arrival - b.start < 4 || b.arrival - b.start > MAX_BEFORE * 4 ||
         !CONTOURS.includes(b.contour) || !Number.isFinite(b.amount) || b.amount < 0 || b.amount > 1) {
-      throw new Error('Courbe de montée hors de la partition ou superposée.');
+      throw new Error(ui('Courbe de montée hors de la partition ou superposée.', 'Build curve outside the score or overlapping another build.'));
     }
     end = b.to;
   }
@@ -35,7 +37,7 @@ function shapeBuild(song, input) {
   const { start, arrival } = buildWindow(song, input);
   const { contour, amount = 1 } = input;
   if (![...CONTOURS, 'flat'].includes(contour) || !Number.isFinite(amount) || amount < 0 || amount > 1) {
-    throw new Error('Choisis progressive, break ou flat et une intensité de 0 à 1.');
+    throw new Error(ui('Choisis progressive, break ou flat et une intensité de 0 à 1.', 'Choose progressive, break, or flat and an intensity from 0 to 1.'));
   }
   const old = song.builds ?? [];
   const builds = old.flatMap((build) => {

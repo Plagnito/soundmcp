@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const COMMON_METER = [4, 4];
 
 function isMeter(meter) {
@@ -22,7 +24,7 @@ function musicClock(song) {
     const { meter = COMMON_METER, tempo = song.bpm } = section;
     if (!isMeter(meter) || !Number.isFinite(tempo) || tempo < 40 || tempo > 220 ||
         !Number.isInteger(section.startBar) || !Number.isInteger(section.bars) || section.startBar < 1 ||
-        section.bars < 1 || section.startBar + section.bars - 1 > song.bars) throw new Error('Grille de tempo ou de mesure invalide.');
+        section.bars < 1 || section.startBar + section.bars - 1 > song.bars) throw new Error(ui('Grille de tempo ou de mesure invalide.', 'Invalid tempo or time signature grid.'));
     for (let b = section.startBar - 1; b < section.startBar + section.bars - 1; b++) measures[b] = { meter, tempo };
   }
   measures[song.bars] = { ...measures[song.bars - 1] };

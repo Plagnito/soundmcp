@@ -1,5 +1,7 @@
 # SoundMCP 🎵
 
+[English guide](README.en.md)
+
 SoundMCP compose des instrumentaux sans voix et génère des effets sonores et des ambiances pour les jeux et les médias. Le moteur tourne en local avec Node.js.
 
 Les 19 styles combinent motifs mélodiques, progressions d’accords et instruments de synthèse. La palette `studio` intègre 537 prises instrumentales, dont des cordes, cuivres, bois, claviers, guitares et percussions orchestrales. Le mix assemble les pupitres avec égalisation, réverbération stéréo, délai et compression liée. [Crédits et licences de la banque](banks/studio/CREDITS.md)
@@ -24,6 +26,8 @@ Points clés :
 Node.js ≥ 18 suffit. Les banques Studio sont incluses et décompressées sans perte par Node.js quand le moteur en a besoin. Le rendu fonctionne en local après l’installation.
 
 [Notes de version](CHANGELOG.md)
+
+Pour afficher SoundMCP en anglais, définissez `SOUNDMCP_LANG=en` dans l’environnement du serveur ou du CLI. Les briefs et tonalités acceptent les deux langues.
 
 Via npm (recommandé) :
 

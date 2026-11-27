@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
@@ -15,8 +17,8 @@ const COMPARISON = 'soundmcp-choice-comparison';
 const beatOf = (event) => event.beat ?? event.t;
 
 function smallJson(file) {
-  if (typeof file !== 'string' || !file.trim()) throw new Error('Un chemin de fichier SoundMCP est requis.');
-  if (fs.statSync(file).size > 64 * 1024) throw new Error('Fichier de préférences ou de comparaison trop volumineux.');
+  if (typeof file !== 'string' || !file.trim()) throw new Error(ui('Un chemin de fichier SoundMCP est requis.', 'A SoundMCP file path is required.'));
+  if (fs.statSync(file).size > 64 * 1024) throw new Error(ui('Fichier de préférences ou de comparaison trop volumineux.', 'Preference or comparison file is too large.'));
   return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
 }
 
@@ -26,13 +28,13 @@ function readPreferences(file, optional = false) {
   const { choices } = payload ?? {};
   if (payload?.type !== PROFILE || payload.version !== 1 || !choices || typeof choices !== 'object' || Array.isArray(choices) ||
       Object.entries(choices).some(([name, value]) => !Object.hasOwn(CHOICES, name) || !['normal', CHOICES[name]].includes(value))) {
-    throw new Error('Fichier de préférences SoundMCP invalide.');
+    throw new Error(ui('Fichier de préférences SoundMCP invalide.', 'Invalid SoundMCP preferences file.'));
   }
   return choices;
 }
 
 function applyPreference(song, name, option, range) {
-  if (!Object.hasOwn(CHOICES, name) || !['normal', CHOICES[name]].includes(option)) throw new Error('Choix de préférence inconnu.');
+  if (!Object.hasOwn(CHOICES, name) || !['normal', CHOICES[name]].includes(option)) throw new Error(ui('Choix de préférence inconnu.', 'Unknown preference choice.'));
   const active = option !== 'normal';
   const covers = ({ startBar, bars }, event) => {
     const from = (startBar - 1) * 4;
@@ -73,25 +75,25 @@ function choiceManifest(criterion, takes) {
 }
 
 function rememberChoice(comparisonFile, selected, profileFile) {
-  if (selected !== 'A' && selected !== 'B') throw new Error('chosen attend A ou B.');
+  if (selected !== 'A' && selected !== 'B') throw new Error(ui('chosen attend A ou B.', 'chosen must be A or B.'));
   const comparison = smallJson(comparisonFile);
   const { criterion, takes } = comparison ?? {};
   if (comparison?.type !== COMPARISON || comparison.version !== 1 || !Object.hasOwn(CHOICES, criterion) ||
       !Array.isArray(takes) || takes.length !== 2 || !['A', 'B'].every((label) => takes.some((take) => take?.label === label)) ||
       !['normal', CHOICES[criterion]].every((option) => takes.some((take) => take?.option === option))) {
-    throw new Error('Fichier de comparaison de préférences invalide.');
+    throw new Error(ui('Fichier de comparaison de préférences invalide.', 'Invalid preference comparison file.'));
   }
-  if (typeof profileFile !== 'string' || !profileFile.trim()) throw new Error('Un chemin de préférences est requis.');
+  if (typeof profileFile !== 'string' || !profileFile.trim()) throw new Error(ui('Un chemin de préférences est requis.', 'A preference profile path is required.'));
   const option = takes.find((take) => take.label === selected).option;
   const target = path.resolve(profileFile);
-  if (target === path.resolve(comparisonFile)) throw new Error('Utilise un chemin distinct pour le profil de préférences.');
+  if (target === path.resolve(comparisonFile)) throw new Error(ui('Utilise un chemin distinct pour le profil de préférences.', 'Use a separate path for the preference profile.'));
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const lock = `${target}.lock`;
   let handle;
   try {
     handle = fs.openSync(lock, 'wx', 0o600);
   } catch (error) {
-    if (error.code === 'EEXIST') throw new Error('Ce profil est en cours de mise à jour. Réessaie dans un instant.');
+    if (error.code === 'EEXIST') throw new Error(ui('Ce profil est en cours de mise à jour. Réessaie dans un instant.', 'This profile is being updated. Try again shortly.'));
     throw error;
   }
   const temporary = path.join(path.dirname(target), `.${randomUUID()}.json.tmp`);
