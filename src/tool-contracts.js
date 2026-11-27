@@ -2,8 +2,12 @@
 
 const { ui } = require('./language');
 
+const { PATCH_ROLES } = require('./custom-patch');
 const { CHOICES: MUSIC_CHOICES } = require('./music-preferences');
 const { STATES: OUTPUT_STATES } = require('./output-library');
+const { DIRECTIONS } = require('./sound-audition');
+
+const CATALOG_CATEGORIES = ['music', 'sfx', 'ambiences', 'sounds'];
 
 const text = { type: 'string' };
 const path = { type: 'string', minLength: 1 };
@@ -12,6 +16,7 @@ const integer = { type: 'integer' };
 const bool = { type: 'boolean' };
 const numericOrNull = { type: ['number', 'null'] };
 const offset = { type: ['integer', 'null'] };
+const seed = { ...integer, minimum: 0, maximum: 0xffffffff };
 const details = { type: 'object' };
 const array = (items) => ({ type: 'array', items });
 const object = (fields, optional = {}) => ({ type: 'object', properties: { ...fields, ...optional }, required: Object.keys(fields) });
@@ -21,7 +26,10 @@ const project = { ...path, description: ui(
   'Projet .soundmcp.json à transmettre à inspect_score, edit_music ou finish_music.',
   '.soundmcp.json project to pass to inspect_score, edit_music, or finish_music.',
 ) };
-const patch = { ...path, description: ui('Patch réutilisable dans play_sound ou dans patch_paths lors d’un arrangement.', 'Reusable patch for play_sound or the arrangement\'s patch_paths.') };
+const patch = { ...path, description: ui(
+  'Transmets ce chemin comme patch_path à play_sound, vary_sound ou calibrate_sound, ou dans patch_paths d’un arrangement.',
+  'Pass this path as patch_path to play_sound, vary_sound, or calibrate_sound, or in an arrangement’s patch_paths.',
+) };
 const fileId = { ...text, description: ui(
   'Pour reprendre un effet ou une ambiance, passe file_id comme source_file_id et output_dir comme source_output_dir à l’outil qui a créé le WAV.',
   'To revise an effect or ambience, pass file_id as source_file_id and output_dir as source_output_dir to the tool that created the WAV.',
@@ -54,6 +62,20 @@ const shortEdit = object({
   files: array(file),
 }, { audio: details });
 const waveStats = object({ durationSeconds: number, integratedLufs: numericOrNull, samplePeakDbfs: numericOrNull });
+const calibrationProbe = object({
+  midi: integer, velocity: number, rmsDbfs: numericOrNull, peakDbfs: number,
+  attackMs: { ...numericOrNull, description: ui('Temps de montée en millisecondes, ou null si le signal est trop faible.', 'Rise time in milliseconds, or null if the signal is too quiet.') },
+  heldDb: { ...numericOrNull, description: ui('Écart de niveau entre la fin de la tenue et la tenue entière.', 'Level difference between the end of the hold and the entire hold.') },
+  lowBandDb: numericOrNull,
+});
+const previewTake = { ...take, properties: { ...take.properties,
+  source: { ...project, description: ui(
+    'Chemin du projet préécouté. Tu peux le reprendre comme project_path. Ce champ est masqué avec blind.',
+    'Path of the auditioned project. Reuse as project_path. Hidden with blind.',
+  ) },
+  region: object({ startBar: integer, bars: integer }),
+  title: { type: ['string', 'null'] },
+} };
 const renderSettings = { kind: text, seed: integer, volume: number, sampling_rate: integer, mono: bool };
 const generatedWave = { path: wav, kind: text, seed: integer, durationSeconds: number, bytes: integer };
 const sfxControls = { pitch_semitones: number, attack_ms: number };
@@ -96,21 +118,35 @@ const draftCandidate = object({ id: { ...integer, description: ui('Numéro de l�
 });
 
 const results = {
-  design_sound: variantSound,
+  design_sound: object({ ...variantSound.properties, seed, note: integer, audio: waveStats }),
   play_sound: {
     ...object({ path: wav, seed: integer }, { sound: text, audio: waveStats, timbre: number,
       markers: array(object({ sound: text, label: text, from: number, integratedLufs: numericOrNull })) }),
     oneOf: [{ required: ['sound', 'audio'] }, { required: ['markers', 'timbre'] }],
   },
-  calibrate_sound: object({ sound: text, role: text, probes: array(details),
-    calibration_path: { ...path, description: ui('Fichier à inclure dans calibration_paths pour appliquer les corrections.', 'File to include in calibration_paths to apply the correction.') } }),
+  calibrate_sound: object({
+    sound: text, role: { ...text, enum: PATCH_ROLES }, seed,
+    probes: array(calibrationProbe), suggestions: array(text),
+    points: array(object({ midi: integer, gain_db: number })),
+    calibration_path: { ...path, description: ui(
+      'Ajoute ce fichier à calibration_paths de draft_music, create_music ou edit_music avec le patch étalonné et le même pupitre.',
+      'Add this file to calibration_paths in draft_music, create_music, or edit_music with the calibrated patch and the same part.',
+    ) },
+  }),
   compare_sounds: object({ files: array(take) }, {
     reveal_path: { ...path, description: ui('Manifeste des identités des prises anonymisées avec blind=true.', 'Manifest revealing the take identities when blind=true.') },
     seed: { ...integer, description: ui('Graine de génération renvoyée lorsque la comparaison est nominative.', 'Generation seed returned when take identities are visible.') },
   }),
-  vary_sound: object({ reference: object({ id: text, label: text, preview_path: wav }), sounds: array(variantSound) }),
-  list_catalog: object({ category: text, items: array(object({ id: text, description: text }, { label: text, part: text, source: text, tempo: number })) },
-    { colors: details, instruments: array(text) }),
+  vary_sound: object({ seed, amount: number,
+    reference: object({ id: text, label: text, preview_path: wav, audio: waveStats }),
+    sounds: array(object({ ...variantSound.properties, direction: { ...text, enum: DIRECTIONS }, audio: waveStats })),
+  }),
+  list_catalog: object({ category: { ...text, enum: CATALOG_CATEGORIES },
+    items: array(object({
+      id: { ...text, description: ui('Identifiant intégré à transmettre tel quel à l’outil de rendu.', 'Built-in ID to pass unchanged to the render tool.') },
+      description: text,
+    }, { label: text, part: text, source: text, tempo: number, duration_seconds: number, loop: bool, use: array(text) })),
+  }, { colors: details, instruments: array(text) }),
   draft_music: {
     ...object({ seed: integer,
       candidates: { ...array(draftCandidate), description: ui('Esquisses issues d’un brief, ou un morceau par brief dans l’ordre fourni.', 'Drafts from one brief, or one track per brief in the supplied order.') },
@@ -140,7 +176,10 @@ const results = {
     },
     required: [...savedExport.required, 'report_path'],
   },
-  preview_music: object({ files: array(take) }, { reveal_path: path }),
+  preview_music: object({ files: array(previewTake) }, { reveal_path: { ...path, description: ui(
+    'Manifeste des correspondances entre les lettres et les projets quand blind est activé. Ouvre-le après le choix de l’auditeur.',
+    'Manifest mapping take labels to projects when blind is enabled. Open it after the listener chooses.',
+  ) } }),
   compare_music_choices: {
     ...object({ criterion: text, files: array(take) }, {
       comparison_path: { ...path, description: ui(
@@ -177,9 +216,16 @@ const results = {
     suggestedEdits: { ...array(details), description: ui('Retouches proposées pour un projet, au format edits de edit_music.', 'Suggested project edits in the format accepted by edit_music.') },
     harmonicOverlaps: object({ total: integer, minimumSeconds: number, bars: array(details), examples: array(details) }),
   }),
-  inspect_score: object({ start_bar: integer, bars: integer, measures: array(details),
-    events: array(object({ bar: integer, part: text, instrument: text, beat: number, duration: number, played: details }, { pitch: integer, hit: text })),
-    offset: integer, event_count: integer, next_offset: { ...offset, description: ui('Valeur à passer dans offset pour la page suivante.', 'Pass this value as offset for the next page.') } }),
+  inspect_score: object({ start_bar: integer, bars: integer,
+    measures: { ...array(details), description: ui('Toutes les mesures demandées avec leurs accords, y compris si part filtre les notes.', 'All requested bars and their chords, even when part filters the notes.') },
+    events: array(object({ bar: integer, part: text, instrument: text,
+      beat: { ...number, description: ui('Temps écrit dans la mesure, à partir de zéro.', 'Written beat within the bar, starting at zero.') },
+      duration: number, played: object({ beat: number, seconds: number, velocity: number, gate_seconds: number }),
+    }, { pitch: integer, hit: text })),
+    offset: integer, event_count: integer, next_offset: { ...offset, description: ui(
+      'Passe cette valeur dans offset avec les mêmes start_bar, bars et part. null indique la dernière page.',
+      'Pass this value as offset with the same start_bar, bars, and part. null marks the last page.',
+    ) } }),
   manage_outputs: {
     ...object({ output_dir: path }, {
       files: array(asset),
@@ -214,4 +260,4 @@ function toolContract(name, createsFiles) {
   };
 }
 
-module.exports = { toolContract };
+module.exports = { CATALOG_CATEGORIES, toolContract };

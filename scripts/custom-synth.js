@@ -195,6 +195,11 @@ async function checkModalAndPerformance(dir) {
   });
   assert(comparison.files.every((file) => file.durationSeconds === 8 && file.clippedFrames === 0));
   assert(Math.abs(comparison.files[0].integratedLufs - comparison.files[1].integratedLufs) < 0.1);
+  const outputsBeforeError = fs.readdirSync(dir);
+  await assert.rejects(callTool('preview_music', {
+    project_paths: [generated, path.join(dir, 'missing.soundmcp.json')], output_dir: dir,
+  }), /projet 2 impossible/);
+  assert.deepEqual(fs.readdirSync(dir), outputsBeforeError);
 
   const window = { project_path: revised, start_bar: 2, bars: 1, part: 'mel', limit: 1 };
   const inspected = (await callTool('inspect_score', window)).structuredContent;

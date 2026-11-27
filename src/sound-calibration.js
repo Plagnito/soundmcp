@@ -59,17 +59,23 @@ function calibrateSound(sound, role, pitches, seed) {
     midi, gain_db: rmsDbfs === null || rmsDbfs < -58 ? 0 : round(clamp((REFERENCE[role] - rmsDbfs) * 0.68, -6, 6)),
   }));
   const suggestions = [];
-  if (middle.some((entry) => entry.rmsDbfs === null || entry.rmsDbfs < -50)) suggestions.push('Un registre est très faible. Vérifie la hauteur utile, le filtre et les résonances du patch.');
+  if (middle.some((entry) => entry.rmsDbfs === null || entry.rmsDbfs < -50)) {
+    suggestions.push(ui('Un registre est très faible. Vérifie la hauteur utile, le filtre et les résonances du patch.',
+      'One register is very quiet. Check the patch’s useful pitch range, filter, and resonances.'));
+  }
   if (middle.some(({ peakDbfs, rmsDbfs, attackMs }) => rmsDbfs !== null && peakDbfs - rmsDbfs > 22 && attackMs < 25)) {
-    suggestions.push('L’attaque dépasse nettement le niveau tenu. Essaie un contact moins fort ou une attaque plus longue.');
+    suggestions.push(ui('L’attaque dépasse nettement le niveau tenu. Essaie un contact moins fort ou une attaque plus longue.',
+      'The attack is much louder than the sustained level. Try a softer contact or a longer attack.'));
   }
   if (['pad', 'counter'].includes(role) && middle.some(({ heldDb }) => heldDb !== null && heldDb < -17)) {
-    suggestions.push('Le son s’efface pendant la tenue. Allonge la résonance ou augmente le sustain pour ce pupitre.');
+    suggestions.push(ui('Le son s’efface pendant la tenue. Allonge la résonance ou augmente le sustain pour ce pupitre.',
+      'The sound fades during the hold. Extend the resonance or increase sustain for this part.'));
   }
   if (role !== 'bass' && middle.some(({ midi, lowBandDb }) => midi >= 60 && lowBandDb !== null && lowBandDb > -3.5)) {
-    suggestions.push('Le grave reste dominant sur une note médiane ou aiguë. Essaie de réduire la couche de sous-octave.');
+    suggestions.push(ui('Le grave reste dominant sur une note médiane ou aiguë. Essaie de réduire la couche de sous-octave.',
+      'The bass still dominates a middle or high note. Try turning down the sub-octave layer.'));
   }
-  return { type: 'soundmcp-calibration', version: 1, sound: sound.id, label: sound.label, role, points, probes, suggestions };
+  return { type: 'soundmcp-calibration', version: 1, sound: sound.id, label: sound.label, role, seed, points, probes, suggestions };
 }
 
 function loadCalibrations(paths) {

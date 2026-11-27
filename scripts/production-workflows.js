@@ -132,7 +132,7 @@ function protocol(version, project_path, language) {
 }
 
 async function checkEnglish(project_path, frenchListing) {
-  const [init, { tools }, preview, validation, catalog, englishDraft] = mcpRequests('2025-06-18', [
+  const [init, { tools }, preview, validation, catalog, englishDraft, calibration] = mcpRequests('2025-06-18', [
     { method: 'tools/list' },
     { method: 'tools/call', params: { name: 'preview_music', arguments: { project_path, section: 'Theme', output_dir: directory } } },
     { method: 'tools/call', params: { name: 'finish_music', arguments: { project_path, bit_depth: 8 } } },
@@ -140,6 +140,9 @@ async function checkEnglish(project_path, frenchListing) {
     { method: 'tools/call', params: { name: 'draft_music', arguments: {
       brief: '10 seconds of jazz with soft piano and upright bass in C major', variants: 1, seed: 7,
       loop: false, use_preferences: false, output_dir: directory,
+    } } },
+    { method: 'tools/call', params: { name: 'calibrate_sound', arguments: {
+      patch: { layers: [{ wave: 'sine', gain: 0.00001 }] }, seed: 5, output_dir: directory,
     } } },
   ], 'en-GB');
   assert.match(init.instructions, /composes instrumental music/);
@@ -153,6 +156,8 @@ async function checkEnglish(project_path, frenchListing) {
   assert.equal(validation.isError, true);
   assert.match(validation.content[0].text, /bit_depth must be 16 or 24/);
   assert.equal(catalog.structuredContent.items.find(({ id }) => id === 'flute').label, 'Flute');
+  assert.equal(calibration.structuredContent.seed, 5);
+  assert.match(calibration.structuredContent.suggestions[0], /very quiet/);
   assert.ok(!englishDraft.isError, JSON.stringify(englishDraft));
   assert.match(englishDraft.content[0].text, /1 instrumental draft · jazz/);
   assert.equal(englishDraft.structuredContent.candidates[0].music.key, 'C major');
