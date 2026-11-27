@@ -1,4 +1,4 @@
-# Prochaine version
+# SoundMCP 2.2.0
 
 - Les esquisses et comparaisons musicales peuvent ajouter des extraits audio MCP courts à sonie alignée.
 - `create_sfx` peut générer une famille de prises numérotées, avec des écarts de hauteur et d’attaque reproductibles. Chaque prise est récupérable par son identifiant.
