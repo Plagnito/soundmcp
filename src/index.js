@@ -12,12 +12,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const readline = require('node:readline');
 const { TOOLS, callTool } = require('./tools');
+const { INLINE_AUDIO_TOOLS } = require('./inline-audio');
 
 const PKG = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
 const SUPPORTED_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18'];
 const PROTOCOL_FALLBACK = '2025-06-18';
-const LEGACY_TOOLS = TOOLS.map(({ title, outputSchema, ...tool }) => tool);
+const LEGACY_TOOLS = TOOLS.map(({ title, outputSchema, ...tool }) => {
+  if (!INLINE_AUDIO_TOOLS.has(tool.name)) return tool;
+  const { inline_audio, ...properties } = tool.inputSchema.properties;
+  return { ...tool, inputSchema: { ...tool.inputSchema, properties } };
+});
 let negotiatedProtocol = PROTOCOL_FALLBACK;
 
 const INSTRUCTIONS = [
@@ -26,7 +31,7 @@ const INSTRUCTIONS = [
   'Pour créer plusieurs morceaux distincts, donne à draft_music trois à six briefs, un par morceau. Précise les contrastes de rythme, d’harmonie ou d’instrumentation et les contraintes communes. Pour refaire un seul morceau, utilise son brief et sa graine avec variants=1 et les réglages shared_options de la collection.',
   'Pour une musique chaleureuse ou chantante, utilise phrasing: lyrical. Il adapte les hauteurs aux accords, garde le rythme du thème et laisse de la place à la mélodie. palette: synth privilégie les sons synthétisés.',
   'En phrasé lyrical, une introduction peut annoncer le thème par un fragment, la reprise développe sa réponse et le contrechant entre dans les respirations.',
-  'Si tu as un thème précis, donne motif à draft_music. Les esquisses harmonisent les notes tenues et conservent le motif. reprise_treatment accepte sequence pour répéter la cellule plus haut ou augmentation pour l’étirer.',
+  'Pour partir d’un thème, donne motif ou midi_motif à draft_music. Les esquisses harmonisent le motif. reprise_treatment accepte sequence pour répéter la cellule plus haut ou augmentation pour l’étirer.',
   'Utilise calibrate_sound pour vérifier le jeu d’un patch dans plusieurs registres puis réimporte calibration_path dans calibration_paths. edit_music accepte mix pour rééquilibrer les pupitres après les retouches.',
   'compare_music_choices génère deux variantes depuis un même projet. Avec criterion accompaniment ou breath, learn_music_preference peut mémoriser le choix explicite de l’auditeur. Avec criterion build, situe l’arrivée et compare les deux montées à niveau égal à la reprise.',
   'shape_build dans edits de edit_music règle une montée. build_contour dans draft_music l’applique à l’esquisse. sound_design: evolving fait varier les timbres et les textures entre sections.',
@@ -37,7 +42,7 @@ const INSTRUCTIONS = [
   'list_catalog donne les identifiants par catégorie. play_sound accepte sounds pour écouter des extraits ou instrument, patch ou patch_path pour jouer une phrase. compare_sounds rend les mêmes notes avec plusieurs timbres dans des WAV séparés à sonie égale. Affine un patch avec vary_sound puis réimporte sa variante dans un morceau.',
   'Pour un jeu expressif, active performance sur les pupitres qui en bénéficient. room place les pupitres à des distances différentes dans la même pièce virtuelle.',
   'Pour les choix détaillés, chaque section peut préciser instruments, color et textures. Les textures ont leur propre stem audio.',
-  'Appelle finish_music sur le projet retenu pour livrer le master. preview_music rend des passages de projets existants. analyze_music donne les mesures et avertissements.',
+  'Appelle finish_music sur le projet retenu. adaptive exporte une introduction, une boucle et une sortie. preview_music rend des passages de projets existants. Avec un client audio MCP, inline_audio ajoute un extrait court aux préécoutes et comparaisons.',
   'Dans analyze_music, harmonicOverlaps indique les mesures où mélodie et accompagnement tiennent des notes à une seconde mineure ou une neuvième mineure. Vérifie ces passages avec preview_music et inspect_score avant de retoucher.',
   'Utilise create_music pour exporter directement un morceau à partir d’un style et d’un arrangement. edit_music crée une copie retouchée d’un projet existant.',
   'Avant de réécrire une mesure, consulte inspect_score pour retrouver ses accords, ses notes et le placement joué.',
@@ -111,7 +116,9 @@ async function handleRequest(msg) {
 
     case 'tools/call': {
       const name = params && params.name;
-      const args = (params && params.arguments) || {};
+      const input = (params && params.arguments) || {};
+      const args = negotiatedProtocol !== PROTOCOL_FALLBACK && INLINE_AUDIO_TOOLS.has(name)
+        ? { ...input, inline_audio: false } : input;
       try {
         const result = await callTool(name, args);
         if (negotiatedProtocol !== PROTOCOL_FALLBACK && result.structuredContent !== undefined) {

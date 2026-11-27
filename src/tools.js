@@ -39,6 +39,9 @@ const { CONTOURS, MAX_BEFORE, buildWindow, shapeBuild } = require('./build-shapi
 const { CHOICES, PREFERENCES, readPreferences, applyPreference, withPreferences, choiceManifest, rememberChoice } = require('./music-preferences');
 const { ACTIONS: OUTPUT_ACTIONS, STATES: OUTPUT_STATES, recordOutputs, outputRenderSettings, manageOutputs } = require('./output-library');
 const { toolContract } = require('./tool-contracts');
+const { appendInlineAudio, INLINE_AUDIO_TOOLS } = require('./inline-audio');
+const { planAdaptiveMusic, exportAdaptiveMusic } = require('./adaptive-music');
+const { readMidiMotif } = require('./midi-motif');
 
 const DEFAULT_OUTPUT_DIR = path.join(__dirname, '..', 'output');
 const CATALOG_CATEGORIES = ['music', 'sfx', 'ambiences', 'sounds'];
@@ -77,14 +80,16 @@ const MOTIF_SCHEMA = {
   type: 'array', minItems: 1, maxItems: 24,
   description: 'Notes de mélodie sur deux mesures, par ordre de temps, sans chevauchement.',
   items: {
-    type: 'object', required: ['beat', 'degree', 'duration'], properties: {
+    type: 'object', required: ['beat', 'duration'], properties: {
       beat: { type: 'number', minimum: 0, exclusiveMaximum: 8 },
       degree: { type: 'integer', minimum: -6, maximum: 15, description: '1 = tonique, 8 = tonique à l’octave au-dessus.' },
-      duration: { type: 'number', minimum: 0.0625, maximum: 8 },
-      velocity: { type: 'number', minimum: 0.05, maximum: 1 },
+      midi: { type: 'integer', minimum: 0, maximum: 127, description: 'Hauteur MIDI absolue, conservée dans le thème.' },
+      duration: { type: 'number', exclusiveMinimum: 0, maximum: 8 },
+      velocity: { type: 'number', minimum: 1 / 127, maximum: 1 },
       articulation: { type: 'string', enum: ARTICULATIONS,
         description: 'mute et slide pour la guitare, legato et swell pour les vents, staccato pour les notes courtes.' },
-    },
+    }, oneOf: [{ required: ['degree'], properties: { duration: { minimum: 0.0625 }, velocity: { minimum: 0.05 } } },
+      { required: ['midi'] }],
   },
 };
 
@@ -316,6 +321,8 @@ const REGION_SELECTION = { allOf: [
     then: { not: { anyOf: [{ required: ['section'] }, { required: ['region'] }, { required: ['max_seconds'] }] } } },
 ] };
 const MUSIC_COMPARISON_CRITERIA = [...PREFERENCES, 'build'];
+const INLINE_AUDIO = { type: 'boolean', default: false,
+  description: 'Ajoute une préécoute audio MCP mono à sonie alignée, jusqu’à 8 s par prise. Les WAV complets restent disponibles par chemin.' };
 const EXPORT_PROPERTIES = {
   title: { type: 'string', description: 'Titre de la version exportée et base du nom de ses fichiers.' },
   format: { type: 'string', enum: ['wav', 'midi', 'both'], description: 'Choisis le rendu audio WAV, la partition MIDI ou les deux.' },
@@ -348,6 +355,8 @@ const PROCEDURAL_AUDIO_PROPERTIES = {
   output_dir: { ...OUTPUT_DIR, description: 'Dossier parent du nouveau rendu. Pour une variante, source_output_dir sert de valeur par défaut.' },
 };
 const PROCEDURAL_AUDIO_MODES = [{ required: ['kind'] }, { required: ['source_file_id'] }];
+const SFX_PITCH = NUMBER(-6, 6), SFX_ATTACK = NUMBER(0, 100);
+const SFX_PITCH_SPREAD = NUMBER(0, 3), SFX_ATTACK_SPREAD = NUMBER(0, 35);
 const DRAFT_BRIEF = { type: 'string', minLength: 1, maxLength: 1600, pattern: '\\S' };
 const DRAFT_MUSIC_OPTIONS = {
   style: { type: 'string', enum: STYLE_IDS, description: 'Force un identifiant de style issu de list_catalog(category=music). À défaut, SoundMCP le déduit du brief.' },
@@ -359,6 +368,15 @@ const DRAFT_MUSIC_OPTIONS = {
   orchestral_percussion: ORCHESTRAL_SCHEMA,
   phrasing: PHRASING_SCHEMA, palette: PALETTE_SCHEMA,
   motif: MOTIF_SCHEMA,
+  midi_motif: { type: 'object', required: ['path'], additionalProperties: false,
+    description: 'Importe une ligne monophonique MIDI SMF 0 ou 1, sur une à deux mesures. Utilise midi_motif ou motif.',
+    properties: {
+      path: { type: 'string', minLength: 1, description: 'Chemin local du fichier .mid, jusqu’à 8 Mio.' },
+      track: { type: 'integer', minimum: 1, description: 'Piste MIDI à partir de 1, y compris la piste des métadonnées. Par défaut, première piste avec des notes mélodiques dans la plage.' },
+      channel: { type: 'integer', minimum: 1, maximum: 16, description: 'Canal MIDI à partir de 1. Par défaut, canal de la première note mélodique de la piste sélectionnée.' },
+      start_bar: { type: 'integer', minimum: 1, maximum: 10000, default: 1, description: 'Première mesure source à partir de 1.' },
+      bars: { type: 'integer', enum: [1, 2], default: 2, description: 'Nombre de mesures à lire, avec la même signature rythmique.' },
+    } },
   reprise_treatment: { type: 'string', enum: THEME_TREATMENTS, description: 'Développe la cellule du thème dans la reprise.' },
   build_contour: { type: 'string', enum: CONTOURS, description: 'Forme l’accompagnement juste avant la reprise.' },
   ...MIX_PROPERTIES, ...PREFERENCE_PROPERTIES,
@@ -441,6 +459,7 @@ const TOOLS = [
       'Compose des esquisses instrumentales à partir d’un brief. Chaque appel écrit des projets éditables et leurs préécoutes à sonie alignée dans un nouveau sous-dossier.',
       'Avec brief, variants choisit le nombre de prises de la même idée. Avec briefs, chaque entrée donne un morceau. Les valeurs fournies pour tempo et duration_seconds priment sur celles du texte. Les exclusions du texte et de without se cumulent.',
       'Pour reprendre un morceau de la collection seul, réutilise son brief et son seed avec shared_options et variants=1. Passe le project_path retenu à finish_music. Pour exporter directement depuis un style, utilise create_music.',
+      'Avec midi_motif, reprends les notes et le rythme d’une ligne MIDI et laisse SoundMCP en écrire l’accompagnement.',
     ].join('\n'),
     inputSchema: { type: 'object', properties: {
       brief: { ...DRAFT_BRIEF, description: 'Brief français ou anglais pour une seule idée musicale. Ex. « 75 secondes pour une exploration nocturne, piano feutré et montée progressive. »' },
@@ -448,10 +467,13 @@ const TOOLS = [
         description: 'Un brief français ou anglais par morceau, dans l’ordre de la collection. Donne à chacun une ambiance, un rythme ou une instrumentation propre. Les réglages explicites, par exemple instruments, sont communs à la collection.' },
       variants: { type: 'integer', minimum: 1, maximum: 3, description: 'Nombre d’esquisses pour brief, 3 par défaut. Avec briefs, chaque morceau reçoit une seule esquisse.' },
       ...DRAFT_MUSIC_OPTIONS,
+      inline_audio: INLINE_AUDIO,
       seed: SEED_SCHEMA,
       title: { ...EXPORT_PROPERTIES.title, description: 'Titre des esquisses ou de la collection. Sert à nommer leur dossier.' },
       output_dir: OUTPUT_DIR,
-    }, oneOf: [{ required: ['brief'] }, { required: ['briefs'] }], not: { required: ['briefs', 'variants'] } },
+    }, oneOf: [{ required: ['brief'] }, { required: ['briefs'] }], not: { anyOf: [
+      { required: ['briefs', 'variants'] }, { required: ['motif', 'midi_motif'] },
+    ] } },
   },
   {
     name: 'finish_music',
@@ -464,7 +486,15 @@ const TOOLS = [
       stems: { ...EXPORT_PROPERTIES.stems, description: 'Ajoute des pistes WAV séparées par pupitre. Actif par défaut avec wav ou both.' },
       cuts: { type: 'array', maxItems: 3, uniqueItems: true, items: { type: 'integer', enum: [15, 30, 60] },
         description: 'Formats courts supplémentaires, en secondes. Chaque montage commence sur un thème et se termine par une cadence.' },
-    }, ...EXPORT_CONSTRAINTS },
+      adaptive: { type: 'object', required: ['loop_region'], additionalProperties: false,
+        description: 'Exporte une introduction, une boucle et une sortie en WAV avec des raccords adoucis et un manifeste en échantillons.',
+        properties: {
+          loop_region: { ...REGION_SCHEMA, description: 'Mesures à répéter. Garde une mesure ou plus avant et après la boucle.' },
+          crossfade_ms: { ...NUMBER(5, 100), default: 25, description: 'Durée maximale du fondu de raccord en millisecondes. Les bornes temporelles restent fixes.' },
+        } },
+    }, allOf: [...EXPORT_CONSTRAINTS.allOf,
+      { if: { properties: { format: { const: 'midi' } }, required: ['format'] }, then: { not: { required: ['adaptive'] } } }],
+    },
   },
   {
     name: 'preview_music',
@@ -473,6 +503,7 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { project_path: PROJECT_SCHEMA,
       project_paths: { type: 'array', minItems: 1, maxItems: 3, items: PROJECT_SCHEMA },
       ...REGION_PROPERTIES,
+      inline_audio: INLINE_AUDIO,
       blind: { type: 'boolean', description: 'Mélange et anonymise les prises. Les identités sont dans le fichier reveal_path.' },
       seed: SEED_SCHEMA, output_dir: OUTPUT_DIR,
     }, oneOf: [{ required: ['project_path'] }, { required: ['project_paths'] }], ...REGION_SELECTION },
@@ -485,6 +516,7 @@ const TOOLS = [
       project_path: PROJECT_SCHEMA, criterion: { type: 'string', enum: MUSIC_COMPARISON_CRITERIA,
         description: 'Teste la présence de l’accompagnement, la respiration mélodique ou le type de montée avant une arrivée.' },
       ...REGION_PROPERTIES, ...BUILD_PROPERTIES,
+      inline_audio: INLINE_AUDIO,
       section: { ...SECTION_SELECTOR, description: 'Avec build, indique la section où débute l’arrivée à la place de arrival_bar. Avec accompaniment ou breath, sélectionne la section à écouter à la place de region.' },
       amount: { ...BUILD_PROPERTIES.amount, description: 'Pour build, intensité de la montée. Utilise une valeur strictement positive, jusqu’à 1 (effet complet).' },
       after_bars: { type: 'integer', minimum: 1, maximum: 8, description: 'Pour build, mesures à écouter à partir de l’arrivée. Par défaut, jusqu’à 2 mesures disponibles.' },
@@ -682,12 +714,22 @@ const TOOLS = [
       'Rend un effet ponctuel en WAV 16 bits. Pour un fond sonore continu, utilise create_ambience.',
       'Pour créer un effet, choisis kind dans list_catalog(category=sfx), par exemple coin. Le même couple kind et seed dans le même output_dir écrase le WAV précédent.',
       'Pour une variante, remplace kind par source_file_id. Reprends le file_id du WAV et son dossier dans source_output_dir. Indique uniquement les réglages à changer, par exemple volume=0.4. Le nouveau WAV est écrit dans un sous-dossier et la source est conservée.',
+      'Pour générer une famille, fournis variants avec count, par exemple {"count":6,"pitch_spread":0.8,"attack_spread_ms":12}. Chaque WAV numéroté a sa graine et ses réglages de reprise.',
       'Un identifiant inconnu dans ce dossier ou dépourvu de réglages compatibles renvoie une erreur.',
     ].join('\n'),
     inputSchema: {
       type: 'object',
       properties: { ...PROCEDURAL_AUDIO_PROPERTIES,
         kind: { type: 'string', enum: SFX_IDS, description: 'Identifiant d’effet issu de list_catalog(category=sfx) pour une création.' },
+        pitch_semitones: { ...SFX_PITCH, description: 'Décalage de hauteur en demi-tons. Par défaut, reprend la source ou utilise 0.' },
+        attack_ms: { ...SFX_ATTACK, description: 'Fondu d’attaque en millisecondes ajouté à l’effet. Par défaut, reprend la source ou utilise 0.' },
+        variants: { type: 'object', required: ['count'], additionalProperties: false,
+          description: 'Rend 2 à 12 prises d’un même effet dans un nouveau sous-dossier. La graine d’appel détermine les prises.',
+          properties: {
+            count: { type: 'integer', minimum: 2, maximum: 12, description: 'Nombre de WAV numérotés.' },
+            pitch_spread: { ...SFX_PITCH_SPREAD, default: 0.8, description: 'Écart maximal autour de pitch_semitones, en demi-tons.' },
+            attack_spread_ms: { ...SFX_ATTACK_SPREAD, default: 12, description: 'Variation maximale autour de attack_ms, en millisecondes. Le fondu appliqué reste positif ou nul.' },
+          } },
       },
       oneOf: PROCEDURAL_AUDIO_MODES,
     },
@@ -799,7 +841,7 @@ function musicOutputs(args, bitDepth = 16) {
   return { format, bits, stems: args.stems };
 }
 
-function exportTrack(song, { format, bits, stems }, outputDir, base) {
+function exportTrack(song, { format, bits, stems }, outputDir, base, onAudio) {
   const files = [];
   let audioInfo;
   if (format !== 'midi') {
@@ -811,6 +853,7 @@ function exportTrack(song, { format, bits, stems }, outputDir, base) {
     const audio = renderSong(song, onStem);
     const file = path.join(outputDir, `${base}.wav`);
     const wav = writeWav(file, audio.L, audio.R, audio.sr, audio.mono, bits);
+    onAudio?.(audio);
     files.push({ path: file, format: 'wav', ...wav }, ...parts);
     audioInfo = { sr: wav.sr, bits: wav.bits, channels: wav.channels,
       durationSeconds: Number((wav.samples / wav.sr).toFixed(3)), ...audio.metrics };
@@ -823,8 +866,8 @@ function exportTrack(song, { format, bits, stems }, outputDir, base) {
   return { files, ...(audioInfo ? { audio: audioInfo } : {}) };
 }
 
-function exportMusic(song, outputs, outputDir, base, args, editions = getEditions(song, args.editions, args.loop_region)) {
-  const exported = exportTrack(song, outputs, outputDir, base);
+function exportMusic(song, outputs, outputDir, base, args, editions = getEditions(song, args.editions, args.loop_region), onAudio) {
+  const exported = exportTrack(song, outputs, outputDir, base, onAudio);
   if (args.save_project) {
     const project = writeProject(path.join(outputDir, `${base}.soundmcp.json`), song, outputs.bits);
     exported.files.push(project);
@@ -1079,9 +1122,12 @@ function draftMusic(args) {
   }
   const palette = args.palette ?? 'studio';
   if (!PALETTES.includes(palette)) throw new Error('palette attend studio ou synth.');
+  if (args.midi_motif !== undefined && args.motif !== undefined) throw new Error('Choisis motif ou midi_motif.');
+  const midiImport = args.midi_motif === undefined ? undefined : readMidiMotif(args.midi_motif);
+  const briefOptions = midiImport ? { ...args, midiImport } : args;
   const intents = Array.from(collection ? args.briefs : [args.brief], (brief, index) => {
     try {
-      return interpretBrief(brief, args);
+      return interpretBrief(brief, briefOptions);
     } catch (error) {
       if (!collection) throw error;
       throw new Error(`Morceau ${index + 1} : ${error.message}`);
@@ -1127,8 +1173,12 @@ function draftMusic(args) {
     if (plan.buildContour && song.bars === 1) warnings.push('La montée demande au moins deux mesures.');
     if (gaps.length) warnings.push(`Instruments demandés absents : ${gaps.join(', ')}.`);
     if (plan.loop && Math.abs(song.meta.durationSeconds - plan.duration) > 0.05) warnings.push('Durée musicale arrondie à une mesure complète pour la boucle.');
-    if (!plan.loop && song.targetSeconds > plan.duration + 0.05) warnings.push('Une mesure entière dépasse la durée demandée à ce tempo.');
+    if (!plan.loop && song.targetSeconds > plan.duration + 0.05) {
+      warnings.push(plan.midi_source ? 'Durée étendue pour présenter le motif MIDI complet et une cadence.'
+        : 'Une mesure entière dépasse la durée demandée à ce tempo.');
+    }
     return { id: i + 1, project_path: projectPath, preview_path: previewPath, music: song.meta,
+      ...(plan.midi_source ? { midi_source: plan.midi_source } : {}),
       ...(collection ? { brief: plan.brief, seed: draftSeed, title: song.meta.title } : {}),
       preview: { ...fragment.region, ...levels[i] }, ...(mix.length ? { mix } : {}), warnings };
   });
@@ -1325,10 +1375,19 @@ function finishMusic(args) {
     throw new Error('cuts attend une liste sans doublon parmi 15, 30 et 60.');
   }
   const editions = getEditions(song, args.editions, args.loop_region);
+  const adaptivePlan = planAdaptiveMusic(song, args.adaptive, opts.format);
   const cuts = requested.map((seconds) => cutMusic(song, seconds));
   const outputDir = newFolder(outputDirectory(args.output_dir, path.dirname(project.source)), `${title}-master`);
   const base = slug(title);
-  const result = exportMusic(song, outputs, outputDir, base, { ...opts, save_project: true }, editions);
+  let adaptive;
+  const renderAdaptive = adaptivePlan && ((audio) => {
+    adaptive = exportAdaptiveMusic(song, adaptivePlan, path.join(outputDir, 'adaptive'), base, outputs.bits, audio);
+  });
+  const result = exportMusic(song, outputs, outputDir, base, { ...opts, save_project: true }, editions, renderAdaptive);
+  if (adaptive) {
+    result.adaptive = adaptive.manifest;
+    result.files.push(...adaptive.files);
+  }
   if (cuts.length) {
     result.cuts = cuts.map((cut) => {
       const seconds = cut.meta.cutSeconds;
@@ -1340,6 +1399,40 @@ function finishMusic(args) {
   }
   result.report_path = jsonFile(outputDir, 'livraison.json', result);
   return resultText(musicSummaryText(result.meta, result.files, result.audio), result);
+}
+
+function sfxControl(value, { minimum, maximum }, name) {
+  if (!Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new Error(`${name} attend une valeur de ${minimum} à ${maximum}.`);
+  }
+  return value;
+}
+
+function sfxFamily(kind, args, control, options) {
+  if (!args || typeof args !== 'object' || Array.isArray(args) ||
+      Object.keys(args).some((key) => !['count', 'pitch_spread', 'attack_spread_ms'].includes(key))) {
+    throw new Error('variants attend count, pitch_spread ou attack_spread_ms.');
+  }
+  const { count, pitch_spread = 0.8, attack_spread_ms = 12 } = args;
+  if (!Number.isInteger(count) || count < 2 || count > 12) throw new Error('variants.count attend un entier de 2 à 12.');
+  sfxControl(pitch_spread, SFX_PITCH_SPREAD, 'variants.pitch_spread');
+  sfxControl(attack_spread_ms, SFX_ATTACK_SPREAD, 'variants.attack_spread_ms');
+  const directory = newFolder(options.outputDir, `${kind}-variantes`);
+  const rng = makeRng(hash32(control.seed, 742));
+  const rounded = (value) => Number(value.toFixed(4));
+  const variants = Array.from({ length: count }, (_, i) => {
+    const index = i + 1;
+    const seed = hash32(control.seed, index);
+    const pitch = control.pitch_semitones + (2 * i / (count - 1) - 1) * pitch_spread;
+    const attack = control.attack_ms + rng.f(-attack_spread_ms, attack_spread_ms);
+    const pitch_semitones = rounded(Math.max(-6, Math.min(6, pitch)));
+    const attack_ms = rounded(control.attack_ms === 0 ? Math.abs(attack) : Math.max(0, Math.min(100, attack)));
+    const take = createSfx(kind, { ...options, outputDir: directory, index, seed, pitchSemitones: pitch_semitones, attackMs: attack_ms });
+    return { ...take, index, render_settings: { ...control, seed, pitch_semitones, attack_ms } };
+  });
+  return resultText(`${variants.length} prises de ${kind} · ${directory}\n` +
+    variants.map(({ index, path: file, seed }) => `- ${index}. ${file} · seed ${seed}`).join('\n'),
+  { kind, seed: control.seed, directory, variants });
 }
 
 function proceduralAudio(name, args) {
@@ -1360,10 +1453,21 @@ function proceduralAudio(name, args) {
   const durationSec = isAmbience ? Math.max(5, Math.min(600,
     args.duration_seconds ?? source.duration_seconds ?? catalog[kind].defaultSec ?? 45)) : undefined;
   if (!Number.isFinite(volume) || (isAmbience && !Number.isFinite(durationSec))) throw new Error('Volume ou durée de rendu invalide.');
-  const outputDir = sourceId === undefined ? root : newFolder(root, `${kind}-variante`);
-  const render = generator(kind, { seed, volume, durationSec, outputDir, ...tech });
   const render_settings = { kind, seed, volume, sampling_rate: tech.sr, mono: tech.mono,
     ...(isAmbience ? { duration_seconds: durationSec } : {}) };
+  const sfx = {};
+  if (!isAmbience) {
+    sfx.pitchSemitones = sfxControl(args.pitch_semitones === undefined ? source.pitch_semitones ?? 0 : args.pitch_semitones,
+      SFX_PITCH, 'pitch_semitones');
+    sfx.attackMs = sfxControl(args.attack_ms === undefined ? source.attack_ms ?? 0 : args.attack_ms, SFX_ATTACK, 'attack_ms');
+    if (args.pitch_semitones !== undefined || source.pitch_semitones !== undefined) render_settings.pitch_semitones = sfx.pitchSemitones;
+    if (args.attack_ms !== undefined || source.attack_ms !== undefined) render_settings.attack_ms = sfx.attackMs;
+    if (args.variants !== undefined) return sfxFamily(kind, args.variants, {
+      ...render_settings, pitch_semitones: sfx.pitchSemitones, attack_ms: sfx.attackMs,
+    }, { volume, outputDir: root, ...tech });
+  }
+  const outputDir = sourceId === undefined ? root : newFolder(root, `${kind}-variante`);
+  const render = generator(kind, { seed, volume, durationSec, outputDir, ...tech, ...sfx });
   const text = [
     `${isAmbience ? '🌫️ Ambiance' : '🔊 SFX'} « ${kind} » · ${render.desc}`,
     `- Fichier : ${render.path} (${fmtBytes(render.bytes)})`,
@@ -1489,18 +1593,23 @@ function runTool(name, args) {
 }
 
 async function callTool(name, args = {}) {
+  const inline = INLINE_AUDIO_TOOLS.has(name) ? args.inline_audio : undefined;
+  if (inline !== undefined && typeof inline !== 'boolean') throw new Error('inline_audio attend true ou false.');
   const result = runTool(name, args);
+  if (inline) appendInlineAudio(name, result);
   if (!OUTPUT_TOOLS.has(name)) return result;
   const data = result.structuredContent;
+  const variants = name === 'create_sfx' ? data.variants : undefined;
   const files = [...(data.files ?? []), ...(data.versions ?? []).flatMap(({ files }) => files)];
   const takes = [...(data.candidates ?? []), ...(data.sounds ?? []), ...(data.reference ? [data.reference] : [])];
   const paths = [data.path, data.preview_path, data.patch_path, data.calibration_path, data.report_path, data.reveal_path, data.comparison_path,
-    ...files.flatMap(({ path, project_path }) => [path, project_path]),
+    ...files.flatMap(({ path, project_path }) => [path, project_path]), ...(variants ?? []).map(({ path }) => path),
     ...takes.flatMap(({ preview_path, project_path, patch_path }) => [preview_path, project_path, patch_path])].filter(Boolean);
   const fallback = PROJECT_OUTPUT_TOOLS.has(name) ? path.dirname(path.resolve(args.project_path)) : DEFAULT_OUTPUT_DIR;
-  const outputDir = outputDirectory(args.output_dir ?? (data.render_settings ? args.source_output_dir : undefined), fallback);
+  const outputDir = outputDirectory(args.output_dir ?? (data.render_settings || variants ? args.source_output_dir : undefined), fallback);
   try {
-    const tracked = recordOutputs(outputDir, name, paths, data.render_settings);
+    const settingsByFile = variants && new Map(variants.map(({ path, render_settings }) => [path, render_settings]));
+    const tracked = recordOutputs(outputDir, name, paths, data.render_settings, settingsByFile);
     if (tracked) data.managed_outputs = tracked;
   } catch (error) {
     data.output_management_warning = error.message;

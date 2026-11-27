@@ -217,7 +217,7 @@ function createSong(params) {
         };
         previousLead = phrasing === 'lyrical' && !customMotif
           ? addLyricalPhrase(push, humanize, melody, { ...phrase, previous: previousLead })
-          : addMelodyPhrase(push, humanize, melody, { ...phrase, motif: transformMotif(phrase.motif, phrase.themeTreatment) });
+          : addMelodyPhrase(push, humanize, melody, { ...phrase, motif: transformMotif(phrase.motif, phrase.themeTreatment, localKey) });
       }
       if (phrasing !== 'lyrical' && has('counter') && !finalHold) {
         const pulses = section.meter?.[0] ?? 4;
@@ -754,7 +754,7 @@ function addMelodyPhrase(push, humanize, m, ctx) {
       chord = change.chord;
     }
     const tones = [chord.deg, chord.deg + 2, chord.deg + 4];
-    let degree = note.degree - 1;
+    let degree = (note.degree ?? 1) - 1;
     if (!ctx.exact) {
       if (variant === 3 && i > 0) degree = 2 * (notes[0].degree - 1) - degree;
       if (variant === 1 && (i > 0 || ctx.variation === 1)) degree += 2;
@@ -769,7 +769,7 @@ function addMelodyPhrase(push, humanize, m, ctx) {
       }
     }
     prevDegree = degree;
-    let midi = melBase + degreeSemitone(ctx.scale, degree);
+    let midi = note.midi ?? (melBase + degreeSemitone(ctx.scale, degree));
     if (!ctx.exact && chord.explicit && (last || !offbeat)) {
       const base = last ? prevMidi ?? midi : midi;
       const choices = last ? [chord.pitchClasses[0]] : chord.pitchClasses;
@@ -779,11 +779,13 @@ function addMelodyPhrase(push, humanize, m, ctx) {
     prevMidi = midi;
     const arch = 0.9 + 0.12 * Math.sin(Math.PI * i / Math.max(1, notes.length - 1));
     const accent = beat % 2 === 0 ? 0.9 : offbeat ? 0.68 : 0.78;
-    const [t, vel] = humanize(ctx.startBar * 4 + beat, (note.velocity ?? accent * arch) * Math.sqrt(ctx.intensity));
+    const onset = ctx.startBar * 4 + beat;
+    const strength = (note.velocity ?? accent * arch) * Math.sqrt(ctx.intensity);
+    const [t, vel] = note.midi === undefined ? humanize(onset, strength) : [onset, strength];
     let duration = note.duration * (ctx.exact ? 1 : m.legato || 1);
     if (!ctx.exact && last) duration = Math.max(duration, ctx.final ? 2.25 : 0.85);
     const available = ctx.startBar * 4 + followingBeat - t;
-    if (available < 0.035) continue;
+    if (note.midi === undefined && available < 0.035) continue;
     let articulation = note.articulation;
     if (!articulation && m.inst === 'guitar' && i === 0 && duration >= 0.74) articulation = 'slide';
     if (!articulation && m.inst === 'brass' && duration >= 1.55) articulation = 'swell';

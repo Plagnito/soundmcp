@@ -25,6 +25,13 @@ const savedExport = { ...exported, required: [...exported.required, 'project_pat
 const waveStats = object({ durationSeconds: number, integratedLufs: numericOrNull, samplePeakDbfs: numericOrNull });
 const renderSettings = { kind: text, seed: integer, volume: number, sampling_rate: integer, mono: bool };
 const generatedWave = { path: wav, kind: text, seed: integer, durationSeconds: number, bytes: integer };
+const sfxControls = { pitch_semitones: number, attack_ms: number };
+const adaptiveSegment = object({ file: { ...text, description: 'Nom du WAV, relatif au dossier du manifeste.' },
+  start_sample: integer, end_sample_exclusive: integer, frames: integer });
+const adaptivePack = object({ manifest_path: path, type: { const: 'soundmcp-adaptive' }, version: { const: 1 },
+  sample_rate: integer, channels: { enum: [1, 2] }, bit_depth: { enum: [16, 24] }, total_frames: integer, crossfade_frames: integer,
+  loop_region: object({ start_bar: integer, bars: integer, start_sample: integer, end_sample_exclusive: integer }),
+  segments: object({ intro: adaptiveSegment, loop: adaptiveSegment, outro: adaptiveSegment }) });
 const managedOutputs = object({ output_dir: path, files: array(object({ file_id: fileId, path })) });
 const asset = object({
   file_id: fileId,
@@ -38,6 +45,8 @@ const draftCandidate = object({ id: { ...integer, description: 'Numéro de l’e
   brief: { ...text, description: 'Brief du morceau de la collection. Réutilise-le avec seed dans draft_music et variants=1 pour reprendre ce morceau seul.' },
   seed: { ...integer, description: 'Graine à transmettre à draft_music pour rejouer ce morceau seul.' },
   title: { ...text, description: 'Titre affiché du morceau.' },
+  midi_source: object({ track: integer, channel: integer, start_bar: integer, bars: integer, meter: array(integer),
+    ticks_per_quarter: integer, tempo: integer }),
 });
 
 const results = {
@@ -70,7 +79,7 @@ const results = {
   },
   create_music: exported,
   edit_music: object({ versions: array(savedExport) }, { mix: array(details) }),
-  finish_music: { ...savedExport, properties: { ...savedExport.properties, report_path: path, cuts: array(details) },
+  finish_music: { ...savedExport, properties: { ...savedExport.properties, report_path: path, cuts: array(details), adaptive: adaptivePack },
     required: [...savedExport.required, 'report_path'] },
   preview_music: object({ files: array(take) }, { reveal_path: path }),
   compare_music_choices: {
@@ -103,7 +112,12 @@ const results = {
       next_offset: { ...offset, description: 'À passer dans offset avec les mêmes filtres, ou null à la dernière page.' } }),
     { ...asset, properties: { output_dir: path, ...asset.properties }, required: ['output_dir', ...asset.required] },
   ] },
-  create_sfx: object({ ...generatedWave, render_settings: object(renderSettings) }),
+  create_sfx: { type: 'object', oneOf: [
+    object({ ...generatedWave, render_settings: object(renderSettings, sfxControls) }),
+    object({ kind: text, seed: integer, directory: path, variants: { ...array(object({
+      ...generatedWave, index: integer, render_settings: object({ ...renderSettings, ...sfxControls }),
+    })), minItems: 2, maxItems: 12 } }),
+  ] },
   create_ambience: object({ ...generatedWave, loop: bool, render_settings: object({ ...renderSettings, duration_seconds: number }) }),
 };
 

@@ -90,6 +90,10 @@ Ou dans `.mcp.json` du projet :
 
 `inspect_score` donne les accords et les notes avant de reprendre une mesure dans `edit_music`. Passez `project_path`, `start_bar`, `bars` et éventuellement `part`. Les champs `beat` et `duration` suivent la même unité que `write_measure`. Les champs `played` indiquent le placement et la vélocité après phrasé. Lorsque `next_offset` contient un nombre, utilisez-le dans `offset` pour lire les événements suivants.
 
+#### Écouter dans un client MCP
+
+Passe `inline_audio: true` à `draft_music`, `preview_music` ou `compare_music_choices` pour recevoir jusqu’à huit secondes de WAV mono par prise dans les clients qui affichent les résultats audio MCP. Les extraits intégrés sont à sonie alignée et les WAV complets restent accessibles par chemin. Dans une comparaison de montées, l’extrait intégré se concentre sur l’arrivée. Pour mémoriser un choix admissible, passe ensuite la lettre choisie et `comparison_path` à `learn_music_preference`.
+
 Un brief suffit pour démarrer.
 
 ```json
@@ -124,6 +128,36 @@ Le manifeste `report_path` relie chaque brief à sa préécoute et à son `proje
 Le phrasé chantant peut annoncer le thème par un fragment, varier le rythme de sa réponse et prolonger la reprise sur un autre instrument. Dans un arrangement explicite, `theme_treatment` choisit le traitement de la section. `fragment` garde la première cellule, `reprise` ajoute une levée si la fin du motif laisse la place, `augmentation` double les durées de la cellule et `sequence` répète cette cellule une tierce diatonique plus haut. `instruments.mel` choisit l’instrument de la mélodie. Les motifs et leurs traitements sont conservés lors d’une retouche de section.
 
 Pour partir d’une phrase écrite à la main, passe `motif` à `draft_music`. Les esquisses arrangent les accords autour de ses notes d’appui, elles annoncent le motif en introduction et le développent dans la reprise. Choisis `reprise_treatment` pour imposer le type de développement. Le motif s’écrit sur deux mesures, avec quatre unités internes par mesure, y compris en 6/8 ou en 7/8.
+
+#### Harmoniser une mélodie MIDI
+
+Passe un fichier MIDI de ton DAW à `draft_music`. Le thème reprend ses hauteurs absolues, y compris les notes chromatiques, ainsi que les attaques et les durées exprimées dans la mesure. SoundMCP harmonise la mélodie et compose une introduction, une reprise et une cadence selon la forme retenue. L’esquisse reste éditable avec `edit_music` après avoir déplacé le fichier source.
+
+```json
+{
+  "brief": "30 secondes de jazz nocturne en do mineur, clarinette et contrebasse",
+  "midi_motif": { "path": "melodie.mid", "track": 2, "start_bar": 1, "bars": 2 },
+  "variants": 2,
+  "seed": 94
+}
+```
+
+L’import lit une seule ligne monophonique de 24 notes au plus, sur une ou deux mesures de même signature, dans un SMF de type 0 ou 1 en ticks par noire. `track` et `channel` sont numérotés à partir de 1. Par défaut, la première piste et le premier canal contenant une ligne non percussive dans la plage sont retenus. L’import reprend le tempo au début du passage, arrondi au BPM, et sa signature si le brief et les paramètres ne les précisent pas. Si tu imposes une autre signature, les positions restent proportionnelles dans la mesure. Les tenues sont bornées par la plage sélectionnée. L’import porte sur les notes, leur vélocité et leur placement. La pédale, les changements de programme et le pitch bend restent propres au MIDI source.
+
+#### Livrer une musique adaptative
+
+Passe `adaptive` à `finish_music` pour produire une introduction, une boucle et une sortie. Garde une mesure ou plus de chaque côté de la région. Cette région peut coexister avec les éditions alignées. Le rendu continu sert à préparer les trois WAV et les fondus de raccord conservent leurs longueurs.
+
+```json
+{
+  "project_path": "traversee.soundmcp.json",
+  "format": "wav",
+  "stems": false,
+  "adaptive": { "loop_region": { "start_bar": 3, "bars": 8 }, "crossfade_ms": 25 }
+}
+```
+
+`adaptive.manifest_path` pointe vers un manifeste portable. Déplace le manifeste et les trois WAV ensemble. Les bornes `start_sample` et `end_sample_exclusive` utilisent des trames, communes aux deux canaux en stéréo. La [scène de démonstration Godot](examples/godot-adaptive/) lit le manifeste, enchaîne l’introduction et la boucle, puis joue la sortie à la fin d’un tour sur demande.
 
 ### Équilibrer et comparer
 
@@ -293,6 +327,19 @@ Avec `action: "list"`, `file_type: "project"` et `state: "active"`, l’inventai
 
 Réutilise `create_sfx` ou `create_ambience` avec le `file_id` du WAV dans `source_file_id` et son dossier dans `source_output_dir`. Indique les seuls réglages à modifier, par exemple `duration_seconds: 20` et `volume: 0.7` pour une boucle de pluie. Les autres réglages, dont la graine, sont repris du rendu enregistré. Chaque variante est écrite dans un nouveau sous-dossier et renvoie ses réglages dans `render_settings`. Cette reprise s’applique aux effets et ambiances générés avec une version qui enregistre ces réglages.
 
+Pour créer une famille d’effets, ajoute `variants` à `create_sfx`. Pars d’un `kind` ou de l’identifiant d’un effet déjà rendu. Un appel comme celui-ci produit six WAV numérotés.
+
+```json
+{
+  "kind": "footstep",
+  "seed": 44,
+  "attack_ms": 16,
+  "variants": { "count": 6, "pitch_spread": 0.7, "attack_spread_ms": 8 }
+}
+```
+
+Chaque entrée de `variants` renvoie la graine et les réglages de sa prise. Retrouve son `file_id` dans `managed_outputs.files` à partir de son chemin WAV pour la reproduire ou la retoucher séparément. `pitch_semitones` règle la hauteur centrale. `attack_ms` ajoute un fondu d’attaque. Les écarts de la famille restent bornés par `pitch_spread` et `attack_spread_ms`.
+
 ### `create_music`
 
 | Paramètre | Type | Défaut | Description |
@@ -378,12 +425,15 @@ Pour écrire une mesure, utilisez `write_measure` avec un numéro de mesure abso
 
 | Paramètre | Type | Défaut | Description |
 |---|---|---|---|
-| `kind` *(requis)* | string | — | Un des 32 effets (voir ci-dessous) |
+| `kind` ou `source_file_id` | string | — | Identifiant du catalogue ou d’un effet déjà rendu |
 | `seed` | entier ≥ 0 | aléatoire | Graine déterministe |
 | `volume` | nombre (0.05–1) | `1` | Volume relatif |
 | `sampling_rate` | 22050 \| 44100 \| 48000 | `44100` | Fréquence d'échantillonnage du WAV |
 | `mono` | booléen | `false` | WAV 1 canal (taille moitié) |
 | `output_dir` | string | `<projet>/output` | Dossier de sortie |
+| `pitch_semitones` | nombre (−6 à 6) | `0` | Décalage de la hauteur lors d’une création |
+| `attack_ms` | nombre (0 à 100) | `0` | Fondu d’attaque ajouté lors d’une création |
+| `variants` | objet | — | Famille de 2 à 12 prises avec `count`, `pitch_spread` et `attack_spread_ms` |
 
 ### `create_ambience`
 
@@ -489,6 +539,16 @@ L’aide `node src/cli.js help` donne la liste des options.
 ```bash
 npm test
 ```
+
+### Banc d’écoute
+
+Depuis le dépôt, lance `npm run bench` pour calculer les dix briefs fixes de `scripts/listening-cases.json`. Le dossier imprimé contient `manifest.json`, les WAV d’écoute, les projets et les mesures. Garde ensemble `manifest.json` et le dossier `audio` pour rendre la référence portable.
+
+```sh
+npm run bench -- --output output/banc-ecoute --against chemin/vers/manifest.json
+```
+
+Avec `--against`, les prises sont alignées en sonie et présentées sous les lettres A et B dans `ab.json` et `ab/`. Écoute en te concentrant sur le critère indiqué par cas, puis ouvre `reveal.json` pour révéler l’ancienne et la nouvelle version. Les mesures et avertissements restent dans le manifeste.
 
 ## Architecture
 

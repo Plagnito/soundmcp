@@ -42,8 +42,9 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node scripts/smoke.js && node scripts/quality.js && node scripts/studio.js && node scripts/workflow.js && node scripts/sound-design.js && node scripts/custom-synth.js",
-    "demo": "node src/cli.js music lofi --dur 24 --seed 7"
+    "test": "node scripts/smoke.js && node scripts/quality.js && node scripts/studio.js && node scripts/workflow.js && node scripts/sound-design.js && node scripts/custom-synth.js && node scripts/production-workflows.js",
+    "demo": "node src/cli.js music lofi --dur 24 --seed 7",
+    "bench": "node scripts/listening-bench.js"
   },
   "bin": {
     "soundmcp": "src/index.js"

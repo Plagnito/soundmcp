@@ -58,16 +58,21 @@ const USAGE = [
   '  --ending-variants N   Génère 1 à 5 fins.',
   '  Les options WAV, MIDI et éditions sont également disponibles.',
   '  draft : --dur N, --seed N, --variants N, --title, --out, --json.',
+  '  draft : --midi-motif fichier.mid [--midi-track N] [--midi-channel N] [--midi-start N] [--midi-bars N].',
   '  draft et music : --sound-design classic|evolving.',
   '  draft et music : --orchestral-percussion march|drive|none.',
   '  design-sound : --definition fichier.json, --note C4, --dur N, --gate N.',
   '  Import : --patch fichier.soundmcp-patch.json et --patch-role pupitre:identifiant.',
   '  finish : --cuts 15,30,60, --editions loop,calm,intense,transition, --no-stems.',
+  '  finish : --adaptive début:mesures [--adaptive-fade ms] exporte intro, boucle, sortie et manifeste.',
   '  preview : --blind, --section nom, --loop-region début:mesures, --dur N.',
   '',
   'Options de sfx :',
   '  --seed N        Graine (variantes reproductibles).',
   '  --vol N         Volume 0.05-1 (défaut 1).',
+  '  --source ID [--source-out dir]  Reprend un effet enregistré à la place de kind.',
+  '  --variants N [--pitch-spread N] [--attack-spread ms]  Génère une famille de 2 à 12 prises.',
+  '  --pitch N et --attack ms règlent la hauteur et le fondu d’attaque.',
   '  --out dir       Dossier de sortie.',
   '',
   'Options de ambience :',
@@ -101,6 +106,12 @@ function parseArgs(argv) {
       i++;
       return v;
     };
+    const region = (name) => {
+      const raw = str(name);
+      if (!/^\d+:\d+$/.test(raw)) throw new Error(`Option --${name} attend début:mesures.`);
+      const [start_bar, bars] = raw.split(':').map(Number);
+      return { start_bar, bars };
+    };
     switch (key) {
       case 'dur': args.dur = num('dur'); break;
       case 'bpm': args.bpm = num('bpm'); break;
@@ -111,6 +122,17 @@ function parseArgs(argv) {
       case 'stems': args.stems = true; break;
       case 'no-stems': args.stems = false; break;
       case 'variants': args.variants = num('variants'); break;
+      case 'midi-motif': args.midiMotif = str('midi-motif'); break;
+      case 'midi-track': args.midiTrack = num('midi-track'); break;
+      case 'midi-channel': args.midiChannel = num('midi-channel'); break;
+      case 'midi-start': args.midiStart = num('midi-start'); break;
+      case 'midi-bars': args.midiBars = num('midi-bars'); break;
+      case 'source': args.source = str('source'); break;
+      case 'source-out': args.sourceOut = str('source-out'); break;
+      case 'pitch': args.pitch = num('pitch'); break;
+      case 'attack': args.attack = num('attack'); break;
+      case 'pitch-spread': args.pitchSpread = num('pitch-spread'); break;
+      case 'attack-spread': args.attackSpread = num('attack-spread'); break;
       case 'cuts': args.cuts = str('cuts').split(',').map(Number); break;
       case 'section': {
         const section = str('section');
@@ -135,13 +157,9 @@ function parseArgs(argv) {
       }
       case 'project': args.project = true; break;
       case 'editions': args.editions = str('editions').split(',').map((value) => value.trim()); break;
-      case 'loop-region': {
-        const raw = str('loop-region');
-        if (!/^\d+:\d+$/.test(raw)) throw new Error('Option --loop-region attend début:mesures.');
-        const [start_bar, bars] = raw.split(':').map(Number);
-        args.loopRegion = { start_bar, bars };
-        break;
-      }
+      case 'loop-region': args.loopRegion = region('loop-region'); break;
+      case 'adaptive': args.adaptive = region('adaptive'); break;
+      case 'adaptive-fade': args.adaptiveFade = num('adaptive-fade'); break;
       case 'edits': args.edits = str('edits'); break;
       case 'ending-variants': args.endings = num('ending-variants'); break;
       case 'key': args.key = str('key'); break;
@@ -199,9 +217,14 @@ async function main() {
   };
 
   if (cmd === 'draft') {
+    const selectors = { track: args.midiTrack, channel: args.midiChannel, start_bar: args.midiStart, bars: args.midiBars };
+    if (!args.midiMotif && Object.values(selectors).some((value) => value !== undefined)) {
+      throw new Error('Indique --midi-motif pour choisir une piste, un canal ou une plage MIDI.');
+    }
     display(await callTool('draft_music', { brief: args._.join(' '), duration_seconds: args.dur, tempo: args.bpm,
       key: args.key, loop: args.loop, seed: args.seed, variants: args.variants, sound_design: args.soundDesign,
-      orchestral_percussion: args.orchestralPercussion, title: args.title, output_dir: args.out,
+      orchestral_percussion: args.orchestralPercussion, title: args.title, output_dir: args.out, palette: args.palette,
+      midi_motif: args.midiMotif ? { path: args.midiMotif, ...selectors } : undefined,
       patch_paths: args.patchPaths, patch_roles: args.patchRoles }));
     return;
   }
@@ -223,7 +246,9 @@ async function main() {
     return;
   }
   if (cmd === 'finish') {
+    if (!args.adaptive && args.adaptiveFade !== undefined) throw new Error('Indique --adaptive pour régler son fondu.');
     display(await callTool('finish_music', { ...musicOptions, project_path: args._[0], cuts: args.cuts,
+      adaptive: args.adaptive ? { loop_region: args.adaptive, crossfade_ms: args.adaptiveFade } : undefined,
       format: args.both ? 'both' : args.midi ? 'midi' : args.wav ? 'wav' : undefined }));
     return;
   }
@@ -272,22 +297,27 @@ async function main() {
 
   if (cmd === 'sfx') {
     const kind = args._[0];
-    if (!kind) {
-      console.error('Usage : node src/cli.js sfx <kind> [--seed N] [--vol N]');
+    if (!kind && !args.source) {
+      console.error('Usage : node src/cli.js sfx <kind> ou --source ID [--variants N]');
       console.error('Kinds : lance `node src/cli.js list`.');
       process.exitCode = 1;
       return;
     }
-    const res = await callTool('create_sfx', {
-      kind,
+    if (args.variants === undefined && (args.pitchSpread !== undefined || args.attackSpread !== undefined)) {
+      throw new Error('Indique --variants pour régler les écarts entre les prises.');
+    }
+    display(await callTool('create_sfx', {
+      kind, source_file_id: args.source, source_output_dir: args.sourceOut,
       seed: args.seed,
       volume: args.vol,
       sampling_rate: args.sr,
       mono: args.mono,
       output_dir: args.out,
-    });
-    console.log(res.content[0].text);
-    if (args.json) console.log(JSON.stringify(res.structuredContent, null, 2));
+      pitch_semitones: args.pitch, attack_ms: args.attack,
+      variants: args.variants === undefined ? undefined : {
+        count: args.variants, pitch_spread: args.pitchSpread, attack_spread_ms: args.attackSpread,
+      },
+    }));
     return;
   }
 

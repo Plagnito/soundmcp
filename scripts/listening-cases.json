@@ -1,0 +1,84 @@
+[
+  {
+    "id": "piano-feutre",
+    "brief": "32 secondes de piano feutré en ré mineur, au rythme d’une marche lente, mélodie chantante puis fin calme",
+    "seed": 38219,
+    "focus": "Mélodie lisible et accompagnement discret au thème",
+    "listen": { "section": "Thème" }
+  },
+  {
+    "id": "boucle-lofi",
+    "brief": "24 secondes de lo-fi bouclable en la mineur, 80 BPM, piano et basse ronde",
+    "seed": 38412,
+    "focus": "Raccord de la boucle et régularité du groove",
+    "settings": { "loop": true },
+    "listen": { "full": true }
+  },
+  {
+    "id": "valse-folk",
+    "brief": "30 secondes de folk en 6/8, en sol majeur à 100 BPM, flûte et guitare acoustique",
+    "seed": 72184,
+    "focus": "Pulsation ternaire et séparation de la flûte et de la guitare",
+    "listen": { "section": "Thème" }
+  },
+  {
+    "id": "montée-orchestrale",
+    "brief": "34 secondes d’épopée qui monte, avec cordes, cuivres et timbales en mi mineur, 112 BPM",
+    "seed": 9914,
+    "focus": "Énergie de la montée, attaque des timbales et place des cuivres",
+    "settings": { "style": "epic", "build_contour": "progressive", "orchestral_percussion": "drive" },
+    "listen": { "region": { "start_bar": 6, "bars": 6 } }
+  },
+  {
+    "id": "jazz-clarinette",
+    "brief": "30 secondes de jazz nocturne en do mineur, clarinette et contrebasse, 106 BPM",
+    "seed": 20405,
+    "focus": "Swing, attaques de clarinette et équilibre de la contrebasse",
+    "listen": { "section": "Thème" }
+  },
+  {
+    "id": "textures-evolutives",
+    "brief": "30 secondes d’exploration nocturne, nappes synthétiques, textures évolutives et fin douce",
+    "seed": 75434,
+    "focus": "Mouvement des textures et lisibilité des timbres superposés",
+    "settings": { "style": "ambient", "palette": "synth", "sound_design": "evolving" },
+    "listen": { "region": { "start_bar": 2, "bars": 4 } }
+  },
+  {
+    "id": "combat-retro",
+    "brief": "20 secondes de combat chiptune, 156 BPM en mi mineur, rythme énergique et phrase mélodique claire",
+    "seed": 18852,
+    "focus": "Articulation des notes rapides et équilibre entre mélodie et batterie",
+    "settings": { "style": "chiptune", "palette": "synth" },
+    "listen": { "section": "Thème" }
+  },
+  {
+    "id": "cadence-ralentie",
+    "brief": "29 secondes de musique triste, violoncelle et piano à 94 BPM en ré mineur. Fin calme qui ralentit",
+    "seed": 3568,
+    "focus": "Ralentissement, résolution de la cadence et décroissance naturelle",
+    "settings": { "style": "sad" },
+    "listen": { "section": "Cadence" }
+  },
+  {
+    "id": "guitare-saturee",
+    "brief": "27 secondes de rock en mi mineur, guitare électrique saturée en premier plan et batterie à 142 BPM",
+    "seed": 44107,
+    "focus": "Lisibilité du riff au milieu de la batterie et tenue du grave",
+    "settings": { "style": "rock" },
+    "listen": { "section": "Thème" }
+  },
+  {
+    "id": "jeu-expressif",
+    "brief": "28 secondes de fantasy lumineuse, flûte chantante, piano et cordes, en ré majeur à 96 BPM",
+    "seed": 67297,
+    "focus": "Respiration de la flûte et équilibre des distances dans la pièce",
+    "settings": {
+      "style": "fantasy",
+      "phrasing": "lyrical",
+      "performance": { "amount": 0.55, "parts": ["mel"] },
+      "room": { "amount": 0.45, "distance": { "mel": 0.17, "pad": 0.75 } }
+    },
+    "listen": { "section": "Thème" }
+  }
+]

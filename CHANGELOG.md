@@ -1,3 +1,13 @@
+# Prochaine version
+
+- Les esquisses et comparaisons musicales peuvent ajouter des extraits audio MCP courts à sonie alignée.
+- `create_sfx` peut générer une famille de prises numérotées, avec des écarts de hauteur et d’attaque reproductibles. Chaque prise est récupérable par son identifiant.
+- `finish_music` peut exporter une introduction, une boucle et une sortie avec un manifeste dont les bornes sont exprimées en échantillons. Le dépôt inclut une scène Godot.
+- `draft_music` peut importer une mélodie MIDI monophonique sur une ou deux mesures et composer son accompagnement en conservant ses hauteurs et son rythme.
+- Le banc d’écoute fournit dix briefs fixes et une comparaison A/B à sonie alignée avec une référence enregistrée.
+
+---
+
 # SoundMCP 2.1.1
 
 - Les définitions MCP de `create_sfx` et `create_ambience` précisent comment reprendre un rendu par son identifiant, quels réglages sont hérités et dans quels cas un WAV existant est écrasé.

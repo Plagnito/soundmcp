@@ -50,11 +50,12 @@ function fingerprint(file) {
   return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}`;
 }
 
-function recordOutputs(outputDir, tool, files, renderSettings) {
+function recordOutputs(outputDir, tool, files, renderSettings, settingsByFile) {
   const store = library(outputDir, true);
   const entries = [...new Set(files)].map((file) => {
     const relative = path.relative(outputDir, file);
-    return { relative, fingerprint: fingerprint(inside(store.root, relative)) };
+    const settings = settingsByFile?.get(file);
+    return { relative, fingerprint: fingerprint(inside(store.root, relative)), ...(settings && { render_settings: settings }) };
   }).filter((entry) => entry.fingerprint);
   if (!entries.length) return undefined;
   const id = randomUUID();
@@ -150,11 +151,12 @@ function registeredOutput(store, id) {
 }
 
 function outputRenderSettings(outputDir, id, tool) {
-  const { record } = registeredOutput(library(outputDir), id);
-  if (record.tool !== tool || !record.render_settings) {
+  const { record, entry } = registeredOutput(library(outputDir), id);
+  const settings = entry.render_settings ?? record.render_settings;
+  if (record.tool !== tool || !settings) {
     throw new Error(`Ce fichier ne contient pas de réglages réutilisables avec ${tool}. Indique kind pour créer un nouveau rendu.`);
   }
-  return record.render_settings;
+  return settings;
 }
 
 function manageOutputs(outputDir, args) {
