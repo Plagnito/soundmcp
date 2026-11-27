@@ -1,8 +1,8 @@
-# Prochaine version
+# SoundMCP 2.4.0
 
 - `compare_music_choices` classe les points de reprise d’un projet et livre des comparaisons à sonie alignée sur deux tours de boucle. La prise choisie se transmet à `finish_music`.
 - `draft_music` peut développer un extrait en reprenant sa mélodie, ses timbres et ses accords. Le CLI prend en charge les deux workflows.
-- Un lecteur Web Audio enchaîne l’introduction, la boucle et la sortie à partir d’un manifeste adaptatif, avec un gain de musique dédié.
+- Un lecteur Web Audio enchaîne l’introduction, la boucle et la sortie sur des trames audio entières, avec un gain de musique dédié. Les exemples Web Audio et Godot sont inclus dans le paquet npm.
 
 ---
 
