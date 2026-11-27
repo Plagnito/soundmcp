@@ -153,16 +153,19 @@ func run_self_test(manifest_path: String) -> void:
 		push_error(load_error)
 		get_tree().quit(1)
 		return
+	var stream := audio.stream as AudioStreamInteractive
+	var intro_seconds := stream.get_clip_stream(INTRO).get_length()
+	var loop_seconds := stream.get_clip_stream(FIRST_LOOP).get_length()
+	var outro_seconds := stream.get_clip_stream(OUTRO).get_length()
 	play()
 	var intro_ok := await wait_for_clip(INTRO, 1)
-	var first_ok := await wait_for_clip(FIRST_LOOP, 5)
-	var repeat_ok := await wait_for_clip(SECOND_LOOP, 7)
+	var first_ok := await wait_for_clip(FIRST_LOOP, intro_seconds + 2)
+	var repeat_ok := await wait_for_clip(SECOND_LOOP, loop_seconds + 2)
 	queue_exit()
-	var outro_ok := await wait_for_clip(OUTRO, 7)
+	var outro_ok := await wait_for_clip(OUTRO, loop_seconds + 2)
 	var completed := false
 	if outro_ok:
-		var stream := audio.stream as AudioStreamInteractive
-		var until := Time.get_ticks_msec() + int((stream.get_clip_stream(OUTRO).get_length() + 2) * 1000)
+		var until := Time.get_ticks_msec() + int((outro_seconds + 2) * 1000)
 		while audio.playing and Time.get_ticks_msec() < until:
 			await get_tree().process_frame
 		completed = not audio.playing

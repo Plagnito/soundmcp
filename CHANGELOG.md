@@ -4,6 +4,7 @@
 - `create_sfx` peut générer une famille de prises numérotées, avec des écarts de hauteur et d’attaque reproductibles. Chaque prise est récupérable par son identifiant.
 - `finish_music` peut exporter une introduction, une boucle et une sortie avec un manifeste dont les bornes sont exprimées en échantillons. Le dépôt inclut une scène Godot.
 - `draft_music` peut importer une mélodie MIDI monophonique sur une ou deux mesures et composer son accompagnement en conservant ses hauteurs et son rythme.
+- `instrument_roles` choisit les timbres de chaque pupitre dans les esquisses, y compris le timbre de la mélodie pendant la reprise.
 - Le banc d’écoute fournit dix briefs fixes et une comparaison A/B à sonie alignée avec une référence enregistrée.
 
 ---
