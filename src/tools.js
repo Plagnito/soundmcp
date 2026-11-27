@@ -40,7 +40,7 @@ const { mixSong } = require('./automatic-mix');
 const { CONTOURS, MAX_BEFORE, buildWindow, shapeBuild } = require('./build-shaping');
 const { CHOICES, PREFERENCES, readPreferences, applyPreference, withPreferences, choiceManifest, rememberChoice } = require('./music-preferences');
 const { ACTIONS: OUTPUT_ACTIONS, STATES: OUTPUT_STATES, recordOutputs, outputRenderSettings, manageOutputs } = require('./output-library');
-const { toolContract } = require('./tool-contracts');
+const { CATALOG_CATEGORIES, toolContract } = require('./tool-contracts');
 const { appendInlineAudio, INLINE_AUDIO_TOOLS } = require('./inline-audio');
 const { MAX_CROSSFADE_MS, planAdaptiveMusic, exportAdaptiveMusic } = require('./adaptive-music');
 const { previewLoopChoices } = require('./loop-audition');
@@ -48,7 +48,6 @@ const { MAX_EXCERPT_BARS, PRESERVE_EXCERPT, readDevelopment } = require('./devel
 const { readMidiMotif } = require('./midi-motif');
 
 const DEFAULT_OUTPUT_DIR = path.join(__dirname, '..', 'output');
-const CATALOG_CATEGORIES = ['music', 'sfx', 'ambiences', 'sounds'];
 const OUTPUT_TOOLS = new Set(['design_sound', 'calibrate_sound', 'play_sound', 'preview_sounds', 'compare_sounds', 'vary_sound',
   'draft_music', 'create_music', 'edit_music', 'mix_music', 'preview_music', 'compare_music_choices', 'compare_builds',
   'finish_music', 'create_sfx', 'create_ambience']);
@@ -545,11 +544,11 @@ const TOOLS = [
     name: 'design_sound',
     title: ui('Créer un timbre', 'Design a sound'),
     description: ui(
-      'Crée un timbre inédit. Donne brief pour partir d’une idée ou patch pour contrôler la synthèse. Écrit un WAV et un patch éditable dans un nouveau sous-dossier. Passe patch_path à play_sound pour l’écouter ou à vary_sound pour le décliner.',
-      'Create a new sound from a brief or use patch for detailed synthesis control. Writes a WAV and an editable patch in a new subdirectory. Pass patch_path to play_sound or vary_sound.',
+      'Crée un timbre réutilisable à partir d’un brief ou d’un patch. Choisis layers pour des oscillateurs, modal pour un matériau frappé ou frotté, ou waveguide pour une corde pincée. Rend une seule note et écrit son WAV et le patch dans un nouveau dossier. Pour un effet prêt à jouer, utilise create_sfx.',
+      'Design a reusable sound from a brief or a patch. Choose layers for oscillators, modal for struck or bowed material, or waveguide for a plucked string. Renders one note and writes its WAV and patch in a new directory. For a ready-to-use effect, use create_sfx.',
     ),
     inputSchema: { type: 'object', properties: {
-      brief: { type: 'string', maxLength: 1000, description: ui(
+      brief: { type: 'string', minLength: 1, maxLength: 1000, description: ui(
         'Décris le matériau, le geste et le caractère du timbre, par exemple « cloche métallique frappée, sombre et courte ». Fournis brief ou patch.',
         'Describe the material, gesture, and sound character, for example "a dark, short bell struck on metal". Supply brief or patch.',
       ) },
@@ -562,7 +561,10 @@ const TOOLS = [
         'Note hold in seconds. Allow at least 0.15 s between the end of the hold and the end of the WAV.',
       ) },
       velocity: { ...NUMBER(0.05, 1), description: ui('Force relative de la note de démonstration. Par défaut 0,78.', 'Relative velocity of the demonstration note. Defaults to 0.78.') }, gesture: GESTURE_SCHEMA,
-      seed: SEED_SCHEMA, output_dir: OUTPUT_DIR,
+      seed: { ...SEED_SCHEMA, description: ui(
+        'Reprends le même brief, titre, seed et réglages d’écoute pour recréer le patch et sa note de démonstration.',
+        'Reuse the same brief, title, seed, and audition settings to reproduce the patch and its demonstration note.',
+      ) }, output_dir: OUTPUT_DIR,
     }, oneOf: [{ required: ['brief'] }, { required: ['patch'] }] },
   },
   {
@@ -579,8 +581,8 @@ const TOOLS = [
     name: 'calibrate_sound',
     title: ui('Étalonner un timbre', 'Calibrate a sound'),
     description: ui(
-      'Étalonne un patch pour l’intégrer à un pupitre. Mesure l’attaque et la tenue à trois forces par hauteur, puis écrit la courbe de gain dans un nouveau sous-dossier. Passe calibration_path dans calibration_paths de draft_music, create_music ou edit_music. Pour simplement écouter le timbre, utilise play_sound.',
-      'Calibrate a patch for an arrangement part. Measures attack and sustain at three velocities per pitch, then writes the gain curve in a new subdirectory. Pass calibration_path in calibration_paths for draft_music, create_music, or edit_music. Use play_sound for an audition.',
+      'Équilibre un patch finalisé dans le registre de son pupitre. Mesure trois forces par hauteur, soit 9 à 18 essais, puis écrit un JSON de gains dans un nouveau dossier. Réutilise la courbe avec le même patch et le même pupitre. Pour écouter le timbre seul, utilise play_sound.',
+      'Balance a finalized patch across its arrangement part’s register. Measures three velocities per pitch for 9 to 18 probes, then writes the gain JSON in a new directory. Reuse the curve with the same patch and part. To hear the sound on its own, use play_sound.',
     ),
     inputSchema: { type: 'object', properties: { ...PATCH_SOURCE_PROPERTIES,
       role: { type: 'string', enum: PATCH_ROLES, description: ui(
@@ -592,7 +594,10 @@ const TOOLS = [
           'Trois à six hauteurs distinctes couvrant le registre du pupitre. À défaut, C3, C4 et C5 pour la plupart des pupitres, une octave plus bas pour bass.',
           'Three to six distinct pitches spanning the part\'s register. Defaults to C3, C4, and C5, or one octave lower for bass.',
         ) },
-      seed: SEED_SCHEMA, output_dir: OUTPUT_DIR,
+      seed: { ...SEED_SCHEMA, description: ui(
+        'À patch, role et notes identiques, reprends la seed renvoyée pour reproduire les mesures.',
+        'For the same patch, role, and notes, reuse the returned seed to reproduce the measurements.',
+      ) }, output_dir: OUTPUT_DIR,
     }, oneOf: PATCH_SOURCE_REQUIRED },
   },
   {
@@ -628,18 +633,22 @@ const TOOLS = [
     name: 'vary_sound',
     title: ui('Décliner un timbre', 'Create sound variants'),
     description: ui(
-      'Affine un timbre existant à partir de patch ou patch_path. Écrit les variantes éditables et le WAV de référence à sonie alignée dans un nouveau sous-dossier. Pour partir d’un brief inédit, utilise design_sound.',
-      'Refine an existing sound from patch or patch_path. Writes editable variants and the reference WAV at matched loudness in a new subdirectory. Use design_sound to start from a new brief.',
+      'Affine un patch existant. Chaque direction part du patch d’origine avec la même intensité amount. Rend la référence et une prise par variante sur la même phrase à sonie alignée, dans un nouveau dossier. Pour choisir entre des timbres existants, utilise compare_sounds.',
+      'Refine an existing patch. Each direction starts from the original patch and uses the same amount. Renders the reference and one take per variant using the same phrase at matched loudness in a new directory. To choose among existing sounds, use compare_sounds.',
     ),
     inputSchema: { type: 'object', properties: { ...PATCH_SOURCE_PROPERTIES, ...AUDITION_PROPERTIES,
       directions: { type: 'array', minItems: 1, maxItems: DIRECTIONS.length, uniqueItems: true,
         items: { type: 'string', enum: DIRECTIONS }, description: ui(
-          'Une variante par direction. brighter et darker changent la couleur, shorter et longer changent la durée du son. Par défaut darker, brighter et shorter.',
-          'One variant per direction. brighter and darker change timbre, shorter and longer change duration. Defaults to darker, brighter, and shorter.',
+          'brighter et darker changent la couleur. shorter et longer changent le déclin du son. Augmente tail_seconds pour mieux entendre une résonance longue. Par défaut darker, brighter et shorter.',
+          'brighter and darker change tone. shorter and longer change decay. Increase tail_seconds to hear a longer resonance. Defaults to darker, brighter, and shorter.',
         ) },
       amount: { ...NUMBER(0.05, 1), description: ui(
         'Amplitude de chaque variation, de 0,05 (subtile) à 1 (marquée). Par défaut 0,7.',
         'Strength of each variation from 0.05 (subtle) to 1 (strong). Defaults to 0.7.',
+      ) },
+      seed: { ...SEED_SCHEMA, description: ui(
+        'Graine de la phrase de préécoute, commune à toutes les prises. Les réglages des variantes dépendent du patch, des directions et de amount.',
+        'Seed for the audition phrase, shared by all takes. Variant settings depend on the source patch, directions, and amount.',
       ) },
     }, oneOf: PATCH_SOURCE_REQUIRED },
   },
@@ -647,11 +656,14 @@ const TOOLS = [
     name: 'list_catalog',
     title: ui('Parcourir le catalogue sonore', 'Browse the sound catalog'),
     description: ui(
-      'Liste les styles musicaux, effets, ambiances ou timbres selon category. Les identifiants de items sont utilisables dans create_music, create_sfx, create_ambience ou play_sound. Lecture seule.',
-      'List music styles, effects, ambiences, or instruments by category. Use item IDs in create_music, create_sfx, create_ambience, or play_sound. Read-only.',
+      'Découvre tous les identifiants intégrés d’une catégorie en un appel. Réutilise items[].id dans l’outil de rendu. Si l’identifiant est déjà connu, appelle directement cet outil.',
+      'Discover all built-in IDs in one category in a single call. Pass items[].id to the render tool. If you already know the ID, call that tool directly.',
     ),
     inputSchema: { type: 'object', required: ['category'], properties: {
-      category: { type: 'string', enum: CATALOG_CATEGORIES },
+      category: { type: 'string', enum: CATALOG_CATEGORIES, description: ui(
+        'music donne les styles pour create_music.style, sfx les effets pour create_sfx.kind, ambiences les fonds pour create_ambience.kind et sounds les timbres pour play_sound.instrument.',
+        'music lists styles for create_music.style, sfx lists effects for create_sfx.kind, ambiences lists backgrounds for create_ambience.kind, and sounds lists instruments for play_sound.instrument.',
+      ) },
     } },
   },
   {
@@ -659,8 +671,8 @@ const TOOLS = [
     title: ui('Préparer des esquisses instrumentales', 'Draft instrumental music'),
     description: [
       ui(
-        'Compose des esquisses instrumentales à partir d’un brief. Chaque appel écrit des projets éditables et leurs préécoutes à sonie alignée dans un nouveau sous-dossier.',
-        'Compose instrumental drafts from a brief. Each call writes editable projects and matched-loudness previews in a new subdirectory.',
+        'Explore un brief instrumental en proposant des esquisses à choisir. Chaque appel écrit leurs projets éditables et leurs préécoutes à sonie alignée dans un nouveau sous-dossier.',
+        'Explore an instrumental brief by offering drafts to choose from. Each call writes their editable projects and matched-loudness previews in a new subdirectory.',
       ),
       ui(
         'Avec brief, variants choisit le nombre de prises de la même idée. Avec briefs, chaque entrée donne un morceau. Les valeurs fournies pour tempo et duration_seconds priment sur celles du texte. Les exclusions du texte et de without se cumulent.',
@@ -765,15 +777,18 @@ const TOOLS = [
     name: 'preview_music',
     title: ui('Préécouter un projet musical', 'Preview a music project'),
     description: [
-      ui('Écoute des projets déjà enregistrés. Écrit des WAV à sonie alignée dans un nouveau dossier et conserve les partitions source.',
-        'Audition saved projects. Writes loudness-matched WAV files in a new directory and preserves the source scores.'),
-      ui('Pour comparer plusieurs projets sur les mêmes numéros de mesures, utilise region, qui doit tenir dans chacun. Un nom section doit pouvoir être résolu dans chaque projet.',
-        'To compare the same numbered bars across projects, use region, which must fit each score. A named section must resolve in each project.'),
+      ui('Préécoute jusqu’à trois projets existants, avec un WAV par projet à sonie alignée dans un nouveau dossier. Si un passage est invalide, le projet concerné est signalé avant le rendu.',
+        'Audition up to three saved projects, with one loudness-matched WAV per project in a new directory. Reports the affected project before rendering if any passage is invalid.'),
+      ui('Choisis une region commune aux projets ou une section présente dans chacun. Avec full, chaque projet doit durer au plus 45 secondes.',
+        'Choose a region that fits every project or a section present in each. With full, every project must be at most 45 seconds long.'),
       ui('Pour générer des alternatives d’arrangement ou de boucle à partir d’un seul projet, utilise compare_music_choices. Pour un timbre isolé, utilise play_sound.',
         'Use compare_music_choices to generate arrangement or loop alternatives from one project. Use play_sound for a single sound.'),
     ].join('\n'),
     inputSchema: { type: 'object', properties: { project_path: PROJECT_SCHEMA,
-      project_paths: { type: 'array', minItems: 1, maxItems: 3, items: PROJECT_SCHEMA },
+      project_paths: { type: 'array', minItems: 1, maxItems: 3, items: PROJECT_SCHEMA, description: ui(
+        'Projets séparés à écouter dans l’ordre fourni. Avec blind, les prises sont mélangées. Pour un seul projet, utilise project_path.',
+        'Separate projects to audition in input order. blind shuffles the takes. For one project, use project_path.',
+      ) },
       ...REGION_PROPERTIES,
       inline_audio: INLINE_AUDIO,
       blind: { type: 'boolean', description: ui('Mélange et anonymise les prises. Les identités sont dans le fichier reveal_path.', 'Shuffle and anonymize the takes. Their identities are in reveal_path.') },
@@ -895,8 +910,8 @@ const TOOLS = [
     name: 'inspect_score',
     title: ui('Lire la partition', 'Inspect the score'),
     description: ui(
-      'Consulte les accords et les notes d’un projet sans lancer de rendu. La réponse distingue les temps écrits des positions jouées. Pour paginer, renvoie next_offset dans offset avec le même filtre. Pour réécrire les notes, utilise edit_music avec edits[].type=write_measure.',
-      'Read project chords and notes without rendering. Written beats and performed timing are separate. For the next page, use next_offset as offset with the same filter. To rewrite a bar, use edit_music with edits[].type=write_measure.',
+      'Lis les accords et les notes écrites ou jouées sur une plage de mesures. Pour écouter ce passage, utilise preview_music. Pour réécrire les notes d’une mesure, utilise edit_music avec edits[].type=write_measure.',
+      'Read chords and both written and performed note timing in a range of bars. To hear the passage, use preview_music. To rewrite a bar, use edit_music with edits[].type=write_measure.',
     ),
     inputSchema: { type: 'object', required: ['project_path'], properties: { project_path: PROJECT_SCHEMA,
       start_bar: { ...REGION_SCHEMA.properties.start_bar, default: 1 },
@@ -960,8 +975,8 @@ const TOOLS = [
     title: ui('Exporter un morceau depuis un style', 'Compose and export from a style'),
     description: [
       ui(
-        'Compose et exporte un instrumental à partir d’un style de list_catalog(category=music), avec un arrangement facultatif. Pour composer à partir d’un brief, utilise draft_music.',
-        'Compose and export an instrumental in a style from list_catalog(category=music), optionally with an arrangement. Use draft_music to compose from a brief.',
+        'Compose et exporte directement un instrumental avec un identifiant de style et, si besoin, un arrangement explicite. Pour explorer un brief et choisir une esquisse, utilise draft_music.',
+        'Compose and export an instrumental directly using a style ID and an optional explicit arrangement. To explore a brief and choose a draft, use draft_music.',
       ),
       ui(
         'Combine format=both et stems=true pour livrer le WAV, le MIDI et les pupitres séparés. Ajoute save_project=true pour récupérer project_path. Demande des variantes alignées avec editions et choisis leurs mesures avec loop_region si nécessaire.',
@@ -1730,11 +1745,16 @@ function previewMusic(args) {
   if (args.project_path !== undefined && args.project_paths !== undefined) throw new Error(ui('Choisis project_path ou project_paths.', 'Choose project_path or project_paths.'));
   const paths = args.project_paths ?? [args.project_path];
   if (!Array.isArray(paths) || !paths.length || paths.length > 3) throw new Error(ui('La comparaison accepte 1 à 3 projets.', 'The comparison accepts 1 to 3 projects.'));
-  const previews = paths.map((input) => {
-    const project = openProject(input);
-    const fragment = previewFragment(project.song, args);
-    return { ...fragment, source: project.source, sourceTitle: project.song.meta.title, audio: renderSong(fragment.song) };
+  const fragments = paths.map((input, index) => {
+    try {
+      const project = openProject(input);
+      return { ...previewFragment(project.song, args), source: project.source, sourceTitle: project.song.meta.title };
+    } catch (error) {
+      throw new Error(ui(`Préécoute du projet ${index + 1} impossible. ${error.message}`,
+        `Could not preview project ${index + 1}. ${error.message}`), { cause: error });
+    }
   });
+  const previews = fragments.map(({ song, ...fragment }) => ({ ...fragment, audio: renderSong(song) }));
   if (args.blind) shuffle(previews, musicSeed(args.seed));
   const levels = matchLevels(previews.map((clip) => clip.audio));
   const outputDir = newFolder(outputDirectory(args.output_dir), args.blind ? 'Ecoute-aveugle' : 'Preecoute');
