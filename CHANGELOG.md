@@ -1,3 +1,11 @@
+# Prochaine version
+
+- `compare_music_choices` classe les points de reprise d’un projet et livre des comparaisons à sonie alignée sur deux tours de boucle. La prise choisie se transmet à `finish_music`.
+- `draft_music` peut développer un extrait en reprenant sa mélodie, ses timbres et ses accords. Le CLI prend en charge les deux workflows.
+- Un lecteur Web Audio enchaîne l’introduction, la boucle et la sortie à partir d’un manifeste adaptatif, avec un gain de musique dédié.
+
+---
+
 # SoundMCP 2.3.0
 
 - `SOUNDMCP_LANG=en` affiche en anglais le catalogue MCP, l’aide CLI, les messages de rendu et les erreurs de validation. Un guide d’utilisation en anglais est inclus.

@@ -248,6 +248,65 @@ async function checkAdaptive() {
   console.log('Adaptatif : tempo et mesure variables, raccords PCM exacts, 16/24 bits et éditions indépendantes.');
 }
 
+async function checkDevelopment(project_path) {
+  const original = fs.readFileSync(project_path);
+  const source = readProject(project_path).song;
+  const theme = source.meta.sections.find((section) => section.name === 'Thème');
+  const region = { start_bar: theme.startBar, bars: 2 };
+  const source_excerpt = { project_path, region };
+  const options = { brief: 'Calm instrumental development', source_excerpt, duration_seconds: 25,
+    variants: 3, seed: 83, output_dir: directory, use_preferences: false };
+  const { structuredContent: result } = await callTool('draft_music', options);
+  assert.deepEqual(result.source_excerpt, { region, preserve: ['motif', 'instruments', 'harmony'] });
+  for (const draft of result.candidates) {
+    const song = readProject(draft.project_path).song;
+    const developed = song.meta.sections.find(({ name }) => name === 'Thème');
+    assert.deepEqual(developed.harmony.slice(0, 2), theme.harmony.slice(0, 2));
+    assert.deepEqual(developed.motif.map(({ beat, midi }) => [beat, midi]), theme.motif.map(({ beat, midi }) => [beat, midi]));
+    const firstMeasure = (developed.startBar - 1) * 4;
+    const lead = song.events.filter((event) => event.bus === 'mel' && event.beat >= firstMeasure && event.beat < firstMeasure + 8);
+    assert.deepEqual(lead.map(({ inst, midi }) => [inst, midi]), developed.motif.map(({ midi }) => ['cello', midi]));
+  }
+  assert.deepEqual(fs.readFileSync(project_path), original);
+  await assert.rejects(callTool('draft_music', { ...options, midi_motif: { path: 'unused.mid' } }), /source_excerpt/);
+  await assert.rejects(callTool('draft_music', { ...options, source_excerpt: { ...source_excerpt, preserve: ['motif', 'motif'] } }), /preserve/);
+  console.log('Développement : motif, timbres et accords repris dans trois projets, source intacte.');
+}
+
+async function checkLoopChoices() {
+  const { structuredContent: source } = await callTool('create_music', {
+    style: 'ambient', key: 'D lydian', seed: 87, format: 'midi', save_project: true, loop: false, output_dir: directory,
+    arrangement: { sections: [{ name: 'Main', bars: 10, tempo: 120, meter: [4, 4], progression: ['Dmaj7', 'Bm7'] }] },
+  });
+  const original = fs.readFileSync(source.project_path);
+  const input = { project_path: source.project_path, criterion: 'loop', section: 'Main', max_seconds: 18, output_dir: directory,
+    loop_options: { count: 3, min_bars: 3, crossfade_ms: 425 }, inline_audio: true };
+  const comparison = await callTool('compare_music_choices', input);
+  const { files } = comparison.structuredContent;
+  assert.equal(files.length, 3);
+  assertAudio(comparison, 3);
+  assert.deepEqual(files.map(({ label }) => label), ['A', 'B', 'C']);
+  assert.deepEqual(files.map(({ metrics }) => metrics.cost), files.map(({ metrics }) => metrics.cost).sort((a, b) => a - b));
+  for (const take of files) {
+    const audio = readWave(take.path);
+    const middle = audio.L.length / 2;
+    assert.equal(middle, Math.round(take.join_seconds * audio.sr));
+    for (const channel of [audio.L, audio.R]) assert.deepEqual(channel.subarray(0, middle), channel.subarray(middle));
+  }
+  const { structuredContent: finished } = await callTool('finish_music', {
+    project_path: source.project_path, format: 'wav', stems: false, sampling_rate: 22050, output_dir: directory,
+    adaptive: files[0].adaptive,
+  });
+  const { start_bar, bars } = files[0].adaptive.loop_region;
+  assert.equal(finished.adaptive.loop_region.start_bar, start_bar);
+  assert.equal(finished.adaptive.loop_region.bars, bars);
+  assert.equal(finished.adaptive.crossfade_frames, Math.round(0.425 * 22050));
+  assert.deepEqual(fs.readFileSync(source.project_path), original);
+  await assert.rejects(callTool('compare_music_choices', { ...input, seed: 2 }), /loop/);
+  await assert.rejects(callTool('compare_music_choices', { ...input, section: undefined, region: { start_bar: 2, bars: 1 } }), /région|plage/);
+  console.log('Raccords : classement, deux tours identiques, audio MCP et export du raccord choisi.');
+}
+
 async function main() {
   const project = await checkMidiAndDraft();
   const modern = protocol('2025-06-18', project);
@@ -261,6 +320,8 @@ async function main() {
   console.log('Langue : schémas MCP identiques, textes anglais et lecture d’un projet français vérifiés.');
   await checkFamily();
   await checkAdaptive();
+  await checkDevelopment(project);
+  await checkLoopChoices();
 }
 
 main().catch((error) => {
