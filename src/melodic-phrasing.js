@@ -1,6 +1,6 @@
 'use strict';
 
-const { degreeSemitone } = require('./theory');
+const { SCALES, degreeSemitone } = require('./theory');
 
 const PHRASINGS = ['style', 'lyrical'];
 const THEME_TREATMENTS = ['fragment', 'reprise', 'augmentation', 'sequence'];
@@ -25,12 +25,22 @@ function lyricalMotif(rng, theme) {
   return rng.pick(theme === 'A' ? THEMES : ANSWERS).map(([beat, duration, degree]) => ({ beat, duration, degree }));
 }
 
-function transformMotif(motif, treatment) {
+function moveNote(note, steps, key) {
+  if (note.midi === undefined) return { degree: note.degree + steps };
+  const scale = SCALES[key.scaleId];
+  const relative = note.midi - key.root;
+  let degree = Math.floor(relative / 12) * scale.degrees.length;
+  while (degreeSemitone(scale, degree + 1) <= relative) degree++;
+  const pitch = note.midi + degreeSemitone(scale, degree + steps) - degreeSemitone(scale, degree);
+  return { midi: Math.max(0, Math.min(127, pitch)) };
+}
+
+function transformMotif(motif, treatment, key) {
   if (treatment === 'reprise') {
     const last = motif.at(-1);
     const beat = Math.max(7.72, last.beat + last.duration);
     if (beat > 7.92) return motif;
-    return [...motif, { beat, duration: Math.min(.21, 8 - beat), degree: last.degree - 1 }];
+    return [...motif, { beat, duration: Math.min(.21, 8 - beat), ...moveNote(last, -1, key) }];
   }
   if (!['fragment', 'augmentation', 'sequence'].includes(treatment)) return motif;
   const from = motif[0].beat >= 4 ? 4 : 0;
@@ -38,7 +48,7 @@ function transformMotif(motif, treatment) {
     ...note, beat: note.beat - from, duration: Math.min(note.duration, from + 4 - note.beat),
   }));
   if (treatment === 'augmentation') return cell.map((note) => ({ ...note, beat: note.beat * 2, duration: note.duration * 2 }));
-  if (treatment === 'sequence') return cell.concat(cell.map((note) => ({ ...note, beat: note.beat + 4, degree: note.degree + 2 })));
+  if (treatment === 'sequence') return cell.concat(cell.map((note) => ({ ...note, beat: note.beat + 4, ...moveNote(note, 2, key) })));
   return cell;
 }
 

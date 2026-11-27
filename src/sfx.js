@@ -496,12 +496,29 @@ function createSfx(kind, opts = {}) {
   const layers = preset(rng);
   const dur = Math.max(...layers.map((l) => (l.offset || 0) + l.dur)) + 0.15;
   const mix = new Mixer(sr, dur);
-  layers.forEach((l, idx) => {
-    if (l.type === 'noise') renderNoise(mix, l, hash32(seed, idx));
-    else renderTone(mix, l);
+  const pitch = 2 ** ((opts.pitchSemitones ?? 0) / 12);
+  const frequency = (value) => Math.min(value * pitch, 0.48 * sr);
+  layers.forEach((layer, idx) => {
+    if (pitch !== 1) {
+      for (const name of ['f0', 'f1', 'lp', 'hp', 'lpHz']) {
+        if (layer[name]) layer[name] = frequency(layer[name]);
+      }
+      if (layer.lpEnv) {
+        const { from, peak, to } = layer.lpEnv;
+        layer.lpEnv = { from: frequency(from), peak: frequency(peak), to: frequency(to) };
+      }
+    }
+    if (layer.type === 'noise') renderNoise(mix, layer, hash32(seed, idx));
+    else renderTone(mix, layer);
   });
 
   // master : soft clip + normalisation au volume demandé
+  const attack = Math.round((opts.attackMs ?? 0) * sr / 1000);
+  for (let i = 0; i < Math.min(attack, mix.n); i++) {
+    const gain = Math.sin(Math.PI * i / (2 * attack));
+    mix.L[i] *= gain;
+    mix.R[i] *= gain;
+  }
   let peak = 0;
   for (let i = 0; i < mix.n; i++) {
     mix.L[i] = clamp(mix.L[i], -1.4, 1.4);
@@ -522,7 +539,8 @@ function createSfx(kind, opts = {}) {
   }
 
   const outDir = opts.outputDir || path.join(__dirname, '..', 'output');
-  const file = path.join(outDir, `sfx-${kind}-${seed}.wav`);
+  const file = path.join(outDir, opts.index === undefined ? `sfx-${kind}-${seed}.wav`
+    : `${String(opts.index).padStart(2, '0')}-${kind}.wav`);
   const res = writeWav(file, mix.L, mix.R, sr, !!opts.mono);
   return {
     path: file,

@@ -61,10 +61,11 @@ function interpretBrief(input, options = {}) {
     : length ? Number(length[1].replace(',', '.')) * (length[2].startsWith('min') ? 60 : 1) : 60);
   if (!Number.isFinite(duration) || duration < 5 || duration > 600) throw new Error('La durée attendue est de 5 à 600 secondes.');
   const met = /\b(\d{1,2})\/(2|4|8|16)\b/.exec(text);
-  const meter = options.meter ?? (met ? met.slice(1).map(Number) : COMMON_METER);
+  const midi = options.midiImport;
+  const meter = options.meter ?? (met ? met.slice(1).map(Number) : midi?.meter ?? COMMON_METER);
   if (!isMeter(meter)) throw new Error('La mesure doit être une paire comme [3,4] ou [6,8].');
   const bpm = /\b(\d{2,3})\s*bpm\b/.exec(text);
-  const tempo = options.tempo ?? (bpm ? Number(bpm[1]) : profile.defaults.tempo);
+  const tempo = options.tempo ?? (bpm ? Number(bpm[1]) : midi?.tempo ?? profile.defaults.tempo);
   if (!Number.isFinite(tempo) || tempo < 40 || tempo > 220) throw new Error('Le tempo attendu est de 40 à 220 BPM.');
   const keyHint = /\b(?:en|in)\s+([a-g][#b]?|do|re|mi|fa|sol|la|si)\s+(mineur harmonique|harmonic minor|mineur|majeur|minor|major|dorien|dorian|lydien|lydian|mixolydien|mixolydian|phrygien|phrygian)\b/.exec(text);
   const key = options.key ?? keyHint?.slice(1).join(' ');
@@ -110,7 +111,7 @@ function interpretBrief(input, options = {}) {
   }
   return { brief: input.trim(), style, duration, tempo: Math.round(tempo), meter, key, energy, instruments, excluded,
     loop: Boolean(loop), quietEnd, slowEnd, solo, pizzicato, spiccato, use, instrumental: true, soundDesign, phrasing,
-    ...(options.motif === undefined ? {} : { motif: options.motif }),
+    ...(midi ? { motif: midi.motif, midi_source: midi.source } : options.motif === undefined ? {} : { motif: options.motif }),
     ...(options.reprise_treatment === undefined ? {} : { repriseTreatment: options.reprise_treatment }),
     ...(percussion !== undefined && !excluded.includes('drum') && !solo ? { orchestralPercussion: percussion } : {}),
     ...(neutral ? { assumptions: ['Style déduit par défaut : thème de menu.'] } : {}) };
@@ -177,7 +178,7 @@ function harmonizeMotif(motif, progression, key, bars) {
   const chordFor = (symbol) => typeof symbol === 'string' ? chordFromSymbol(symbol)
     : chordFromDegree(48 + key.root, scale, symbol - 1);
   const diatonic = [1, 4, 5, 6, 2, 3, 7].map((symbol) => ({ symbol, chord: chordFor(symbol) }));
-  const melody = motif.map((note) => ({ ...note, pc: (key.root + degreeSemitone(scale, note.degree - 1) + 120) % 12 }));
+  const melody = motif.map((note) => ({ ...note, pc: ((note.midi ?? (key.root + degreeSemitone(scale, note.degree - 1))) + 120) % 12 }));
   let previous;
   return Array.from({ length: bars }, (_, bar) => {
     const expected = progression[bar % progression.length];
@@ -229,7 +230,7 @@ function arrange(plan, seedBase, variant, title) {
       for (let i = 0; i < count; i += 64) {
         const bars = Math.min(64, count - i);
         const motif = theme === 'A' && !extra.motif ? plan.motif : undefined;
-        const harmony = motif ? harmonizeMotif(transformMotif(motif, extra.theme_treatment), progression, tonalKey, bars) : progression;
+        const harmony = motif ? harmonizeMotif(transformMotif(motif, extra.theme_treatment, tonalKey), progression, tonalKey, bars) : progression;
         sections.push({ name, bars, progression: harmony, parts: [...new Set(parts)], energy, theme, meter,
           ...(motif ? { motif } : {}), ...extra,
           ...(plan.orchestralPercussion !== undefined ? { orchestral_percussion: percussion } : {}) });
@@ -262,9 +263,11 @@ function arrange(plan, seedBase, variant, title) {
       plan.quietEnd ? 0.48 : 0.66, 'A', { motif: notes, ...(plan.slowEnd ? { tempo: slower } : {}) });
     return sections;
   };
-  let bars = Math.max(1, Math.floor((plan.duration - (plan.loop ? 0 : 0.9)) / perBar));
+  const minimumBars = plan.midi_source
+    ? Math.ceil(Math.max(...plan.motif.map((note) => note.beat + note.duration)) / 4) + (plan.loop ? 0 : 1) : 1;
+  let bars = Math.max(minimumBars, Math.floor((plan.duration - (plan.loop ? 0 : 0.9)) / perBar));
   const endExtra = !plan.loop && plan.slowEnd ? (bars >= 9 ? 2 : 1) * (60 * beats / slower - perBar) : 0;
-  while (bars > 1 && bars * perBar + endExtra > plan.duration) bars--;
+  while (bars > minimumBars && bars * perBar + endExtra > plan.duration) bars--;
   const base = createSong({ style: plan.style, key, seed, tempo: plan.tempo, title,
     arrangement: { sections: form(bars) }, loop: plan.loop, phrasing: plan.phrasing, palette: plan.palette ?? 'studio', sr: 48000 });
   let song = orchestra(base, assignments, plan);

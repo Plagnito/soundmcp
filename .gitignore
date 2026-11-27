@@ -3,3 +3,5 @@
 /tmp/
 /debug.log
 /banks/studio/*.pcm
+/examples/godot-adaptive/.godot/
+/examples/godot-adaptive/generated/

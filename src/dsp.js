@@ -946,8 +946,7 @@ function measureAudio({ L, R, samples }) {
 
 /* ---------------------------------- WAV ---------------------------------- */
 
-/** WAV PCM 16/24 bits ou IEEE Float 32 bits pour les pistes séparées. */
-function writeWav(filePath, L, R, sr = SR, mono = false, bits = 16) {
+function wavEncoding(L, R, sr, mono, bits) {
   if (![16, 24, 32].includes(bits)) throw new Error(`Profondeur WAV invalide : ${bits}.`);
   const float = bits === 32;
   const channels = mono ? 1 : 2;
@@ -976,12 +975,35 @@ function writeWav(filePath, L, R, sr = SR, mono = false, bits = 16) {
   header.write('data', header.length - 8, 'ascii');
   header.writeUInt32LE(dataSize, header.length - 4);
 
-  const blockFrames = 16384;
-  const buf = Buffer.allocUnsafe(blockFrames * blockAlign);
   const max = 2 ** (bits - 1) - 1;
   const writeSample = float
-    ? (value, pos) => buf.writeFloatLE(value, pos)
-    : (value, pos) => buf.writeIntLE(Math.round(Math.max(-1, Math.min(1, value)) * max), pos, bytesPerSample);
+    ? (buf, value, pos) => buf.writeFloatLE(value, pos)
+    : (buf, value, pos) => buf.writeIntLE(Math.round(Math.max(-1, Math.min(1, value)) * max), pos, bytesPerSample);
+  function writeBlock(buf, first, length) {
+    for (let i = 0; i < length; i++) {
+      const pos = i * blockAlign;
+      writeSample(buf, L[first + i], pos);
+      if (!mono) writeSample(buf, R[first + i], pos + bytesPerSample);
+    }
+    return buf.subarray(0, length * blockAlign);
+  }
+  return { header, pad, blockAlign, writeBlock,
+    info: { bytes, samples: n, sr, channels, bits, encoding: float ? 'float' : 'pcm' } };
+}
+
+function wavBuffer(L, R, sr = SR, mono = false, bits = 16) {
+  const { header, writeBlock, info } = wavEncoding(L, R, sr, mono, bits);
+  const buf = Buffer.alloc(info.bytes);
+  header.copy(buf);
+  writeBlock(buf.subarray(header.length), 0, info.samples);
+  return buf;
+}
+
+/** WAV PCM 16/24 bits ou IEEE Float 32 bits pour les pistes séparées. */
+function writeWav(filePath, L, R, sr = SR, mono = false, bits = 16) {
+  const { header, pad, blockAlign, writeBlock, info } = wavEncoding(L, R, sr, mono, bits);
+  const blockFrames = 16384;
+  const buf = Buffer.allocUnsafe(blockFrames * blockAlign);
 
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = path.join(path.dirname(filePath), `.${randomUUID()}.wav.tmp`);
@@ -989,14 +1011,9 @@ function writeWav(filePath, L, R, sr = SR, mono = false, bits = 16) {
   try {
     try {
       fs.writeFileSync(fd, header);
-      for (let frame = 0; frame < n; frame += blockFrames) {
-        const length = Math.min(n - frame, blockFrames);
-        for (let i = 0; i < length; i++) {
-          const pos = i * blockAlign;
-          writeSample(L[frame + i], pos);
-          if (!mono) writeSample(R[frame + i], pos + bytesPerSample);
-        }
-        fs.writeFileSync(fd, buf.subarray(0, length * blockAlign));
+      for (let frame = 0; frame < info.samples; frame += blockFrames) {
+        const length = Math.min(info.samples - frame, blockFrames);
+        fs.writeFileSync(fd, writeBlock(buf, frame, length));
       }
       if (pad) fs.writeFileSync(fd, Buffer.alloc(1));
     } finally {
@@ -1006,7 +1023,7 @@ function writeWav(filePath, L, R, sr = SR, mono = false, bits = 16) {
   } finally {
     if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
   }
-  return { bytes, samples: n, sr, channels, bits, encoding: float ? 'float' : 'pcm' };
+  return info;
 }
 
 /** Infos rapides des fichiers WAV écrits par SoundMCP. */
@@ -1040,6 +1057,7 @@ module.exports = {
   toMono,
   lpCoef,
   writeWav,
+  wavBuffer,
   readWavInfo,
   midiToFreq,
   INSTRUMENTS,

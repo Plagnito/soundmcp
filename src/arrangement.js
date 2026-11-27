@@ -109,12 +109,14 @@ function validateMotif(motif) {
   }
   let end = 0;
   for (const note of motif) {
+    const absolute = note?.midi !== undefined;
     if (!note || !Number.isFinite(note.beat) || !Number.isFinite(note.duration) ||
-        note.beat < end - 1e-9 || note.duration < 0.0625 || note.beat + note.duration > 8 ||
-        !Number.isInteger(note.degree) || note.degree < -6 || note.degree > 15 ||
-        (note.velocity !== undefined && (!Number.isFinite(note.velocity) || note.velocity < 0.05 || note.velocity > 1)) ||
+        note.beat < 0 || note.beat < end - 1e-9 || note.duration <= 0 || (!absolute && note.duration < 0.0625) || note.beat + note.duration > 8 ||
+        (absolute ? note.degree !== undefined || !Number.isInteger(note.midi) || note.midi < 0 || note.midi > 127
+          : !Number.isInteger(note.degree) || note.degree < -6 || note.degree > 15) ||
+        (note.velocity !== undefined && (!Number.isFinite(note.velocity) || note.velocity < (absolute ? 1 / 127 : 0.05) || note.velocity > 1)) ||
         (note.articulation !== undefined && !ARTICULATIONS.includes(note.articulation))) {
-      throw new Error('Notes de motif invalides : ordre chronologique, sans chevauchement, sur 8 temps, degrés de -6 à 15.');
+      throw new Error('Le motif attend des notes ordonnées sans chevauchement, sur deux mesures, avec degree ou midi.');
     }
     end = note.beat + note.duration;
   }
