@@ -1,4 +1,4 @@
-# Prochaine version
+# SoundMCP 2.3.0
 
 - `SOUNDMCP_LANG=en` affiche en anglais le catalogue MCP, l’aide CLI, les messages de rendu et les erreurs de validation. Un guide d’utilisation en anglais est inclus.
 - Les sélecteurs `Intro`, `Theme`, `Bridge` et `Outro` permettent de retrouver les sections par défaut des projets existants.
