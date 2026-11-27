@@ -27,6 +27,23 @@ const fileId = { ...text, description: ui(
 ) };
 const file = object({ path, format: { type: 'string', enum: ['wav', 'midi', 'project', 'json'] }, bytes: integer });
 const take = object({ label: text, path: wav, integratedLufs: numericOrNull }, { project_path: project });
+const barRegion = object({ start_bar: { ...integer, minimum: 1 }, bars: { ...integer, minimum: 1 } });
+const loopTake = object({
+  label: text, path: wav, integratedLufs: numericOrNull,
+  join_seconds: { ...number, description: ui('Position du raccord entre les deux tours dans le WAV.',
+    'Time of the join between the two turns in the WAV.') },
+  adaptive: { ...object({ loop_region: barRegion, crossfade_ms: number }), description: ui(
+    'À transmettre tel quel à finish_music avec le project_path source.',
+    'Pass unchanged to finish_music with the source project_path.',
+  ) },
+  metrics: object({
+    cost: { ...number, description: ui('Coût de classement, plus bas pour les meilleurs raccords.', 'Ranking cost. Lower is better.') },
+    level_difference_db: { ...number, description: ui('Écart de niveau avant les deux bornes.', 'Level difference before the two boundaries.') },
+    harmonic_distance: { ...number, minimum: 0, maximum: 1, description: ui(
+      'Distance entre les accords autour des deux bornes.', 'Chord distance around the two boundaries.',
+    ) },
+  }),
+});
 const variantSound = object({ id: text, label: text, patch_path: patch, preview_path: wav });
 const exported = object({ meta: details, files: array(file) }, { project_path: project, audio: details, editions: array(details) });
 const savedExport = { ...exported, required: [...exported.required, 'project_path'] };
@@ -82,6 +99,7 @@ const results = {
       firstToPreview: { ...integer, description: ui('Identifiant de la préécoute suggérée en premier.', 'ID of the suggested first preview.') },
       report_path: { ...path, description: ui('Manifeste local qui rassemble les préécoutes et les projets de cette génération.', 'Local manifest listing the previews and projects from this generation.') },
     }, { mode: { const: 'collection', description: ui('La réponse contient des morceaux indépendants.', 'The response contains standalone tracks.') }, title: text,
+      source_excerpt: object({ region: barRegion, preserve: array(text) }),
       shared_options: { ...details, description: ui(
         'Réglages explicites communs à recopier dans draft_music pour reprendre un morceau de la collection.',
         'Shared explicit settings to reuse in draft_music when recreating a collection track.',
@@ -107,6 +125,7 @@ const results = {
     oneOf: [
       { properties: { criterion: { enum: ['accompaniment', 'breath'] } }, required: ['comparison_path'] },
       { properties: { criterion: { const: 'build' } }, required: ['reveal_path'] },
+      { properties: { criterion: { const: 'loop' }, files: { ...array(loopTake), minItems: 1, maxItems: 3 } } },
     ],
   },
   learn_music_preference: object({ criterion: text, choice: text, choices: details,

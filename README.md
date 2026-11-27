@@ -165,6 +165,36 @@ Passe `adaptive` à `finish_music` pour produire une introduction, une boucle et
 
 `adaptive.manifest_path` pointe vers un manifeste portable. Déplace le manifeste et les trois WAV ensemble. Les bornes `start_sample` et `end_sample_exclusive` utilisent des trames, communes aux deux canaux en stéréo. La [scène de démonstration Godot](examples/godot-adaptive/) lit le manifeste, enchaîne l’introduction et la boucle, puis joue la sortie à la fin d’un tour sur demande.
 
+Le [lecteur Web Audio](examples/web-audio-adaptive/) utilise le même manifeste. Il programme les transitions sur l’horloge audio et expose un volume indépendant pour la musique.
+
+### Développer un extrait
+
+Donne un nouveau `brief` à `draft_music` et sélectionne un passage dans `source_excerpt`. Utilise `inspect_score` pour trouver ses mesures. Par défaut, SoundMCP reprend la mélodie des deux premières mesures, les timbres dominants et les accords de la plage. `preserve` permet d’en garder seulement certains. Le moteur développe le thème dans une nouvelle partition. Le brief et les réglages explicites peuvent faire évoluer le tempo, la tonalité ou les mesures. `instrument_roles` peut remplacer un timbre repris.
+
+```json
+{
+  "brief": "Développe ce thème en un morceau lumineux de 90 secondes avec une montée lente",
+  "source_excerpt": {
+    "project_path": "output/theme.soundmcp.json",
+    "region": {"start_bar": 3, "bars": 3},
+    "preserve": ["motif", "instruments", "harmony"]
+  },
+  "seed": 12,
+  "variants": 1
+}
+```
+
+### Comparer des raccords de boucle
+
+Appelle `compare_music_choices` avec `criterion: "loop"`. Les WAV classés contiennent deux tours complets et les niveaux sont alignés près du raccord. `inline_audio: true` centre l’extrait court sur ce raccord. `section` ou `region` restreint la recherche. `max_seconds` borne la durée d’un tour. `loop_options` peut régler `count`, `min_bars` et `crossfade_ms`. Le classement tient compte de l’harmonie, du niveau et du tempo. Choisis la prise à l’écoute.
+
+Pour l’export, copie `files[].adaptive` dans `finish_music` avec le `project_path` d’origine. L’introduction et la sortie sont conservées dans des WAV séparés. Un fondu plus long préserve la durée musicale du tour.
+
+```bash
+node src/cli.js loop-choices output/theme.soundmcp.json --min-bars 8 --json
+node src/cli.js draft "Une montée lente de 90 secondes" --source-project output/theme.soundmcp.json --source-region 3:3 --variants 1
+```
+
 ### Équilibrer et comparer
 
 - `calibrate_sound` mesure un patch à trois vélocités dans plusieurs registres. Le rapport donne les niveaux, le temps d’attaque et la tenue. Réutilisez son `calibration_path` dans `calibration_paths` avec le même patch et le même pupitre pour appliquer la courbe de gain, dans `draft_music`, `create_music` ou `edit_music`.

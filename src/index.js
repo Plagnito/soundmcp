@@ -36,6 +36,8 @@ const INSTRUCTIONS = [
     'Pour explorer une idée musicale, donne le brief à draft_music. Le résultat contient un à trois projets éditables avec leurs préécoutes à niveau égal. Pour produire directement depuis un style déjà choisi, utilise create_music.',
     'To explore a musical idea, send the brief to draft_music. It returns one to three editable projects with loudness-matched previews. Use create_music to render directly from a chosen style.',
   ),
+  ui('Pour développer un passage enregistré, donne à draft_music le projet et les mesures dans source_excerpt, puis décris le nouveau morceau dans brief.',
+    'To develop a saved passage, give draft_music the project and bars in source_excerpt and describe the new track in brief.'),
   ui(
     'Pour créer plusieurs morceaux distincts, donne à draft_music trois à six briefs, un par morceau. Précise les contrastes de rythme, d’harmonie ou d’instrumentation et les contraintes communes. Pour refaire un seul morceau, utilise son brief et sa graine avec variants=1 et les réglages shared_options de la collection.',
     'For several distinct tracks, give draft_music three to six briefs, one per track. Describe each rhythm, harmony, or instrumentation and the shared constraints. To recreate one track, reuse its brief and seed with variants=1 and the collection\'s shared_options.',
@@ -60,6 +62,8 @@ const INSTRUCTIONS = [
     'compare_music_choices génère deux variantes depuis un même projet. Avec criterion accompaniment ou breath, learn_music_preference peut mémoriser le choix explicite de l’auditeur. Avec criterion build, situe l’arrivée et compare les deux montées à niveau égal à la reprise.',
     'compare_music_choices makes two variants of the same project. For accompaniment or breath comparisons, learn_music_preference can save the listener\'s explicit choice. For build, align the previews at the arrival and compare both approaches at matched loudness.',
   ),
+  ui('Pour auditionner plusieurs raccords de boucle, utilise compare_music_choices avec criterion=loop. Transmets ensuite adaptive de la prise choisie à finish_music sur le projet source.',
+    'To audition loop joins, call compare_music_choices with criterion=loop. Then pass the chosen take’s adaptive settings to finish_music on the source project.'),
   ui(
     'shape_build dans edits de edit_music règle une montée. build_contour dans draft_music l’applique à l’esquisse. sound_design: evolving fait varier les timbres et les textures entre sections.',
     'Use shape_build in edit_music to shape a build, or build_contour in draft_music. Set sound_design to evolving to vary timbres and textures by section.',

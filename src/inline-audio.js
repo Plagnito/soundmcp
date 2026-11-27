@@ -2,6 +2,7 @@
 
 const { wavBuffer } = require('./dsp');
 const { matchLevels, readWave } = require('./music-analysis');
+const { ui } = require('./language');
 
 const SAMPLE_RATE = 22050;
 const SECONDS = 8;
@@ -30,14 +31,14 @@ function audition(file, arrival = 0) {
 function appendInlineAudio(name, result) {
   const data = result.structuredContent;
   const takes = name === 'draft_music'
-    ? data.candidates.map((candidate) => ({ file: candidate.preview_path, label: `Prise ${candidate.id}` }))
-    : data.files.map(({ path: file, label }) => ({ file, label }));
-  const clips = takes.map(({ file }) => audition(file, data.region?.arrivalSeconds));
+    ? data.candidates.map((candidate) => ({ file: candidate.preview_path, label: `${ui('Prise', 'Take')} ${candidate.id}` }))
+    : data.files.map(({ path: file, label, join_seconds }) => ({ file, label, join_seconds }));
+  const clips = takes.map(({ file, join_seconds }) => audition(file, join_seconds ?? data.region?.arrivalSeconds));
   matchLevels(clips);
   for (const [i, clip] of clips.entries()) {
     const annotations = { audience: ['user'] };
     result.content.push(
-      { type: 'text', text: `${takes[i].label} · extrait audio mono`, annotations },
+      { type: 'text', text: `${takes[i].label} · ${ui('extrait audio mono', 'mono audio excerpt')}`, annotations },
       { type: 'audio', mimeType: 'audio/wav', data: wavBuffer(clip.L, clip.R, clip.sr, clip.mono).toString('base64'), annotations },
     );
   }

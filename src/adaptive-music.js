@@ -7,6 +7,8 @@ const path = require('node:path');
 const { renderSong, writeWav } = require('./dsp');
 const { musicClock } = require('./music-clock');
 
+const MAX_CROSSFADE_MS = 1000;
+
 function planAdaptiveMusic(song, options, format) {
   if (options === undefined) return;
   if (format === 'midi') throw new Error(ui('adaptive nécessite format wav ou both.', 'adaptive requires format wav or both.'));
@@ -22,7 +24,9 @@ function planAdaptiveMusic(song, options, format) {
     ));
   }
   const crossfade = options.crossfade_ms ?? 25;
-  if (!Number.isFinite(crossfade) || crossfade < 5 || crossfade > 100) throw new Error(ui('adaptive.crossfade_ms attend 5 à 100 ms.', 'adaptive.crossfade_ms must be between 5 and 100 ms.'));
+  if (!Number.isFinite(crossfade) || crossfade < 5 || crossfade > MAX_CROSSFADE_MS) {
+    throw new Error(ui('adaptive.crossfade_ms attend 5 à 1000 ms.', 'adaptive.crossfade_ms must be between 5 and 1000 ms.'));
+  }
   const clock = musicClock(song);
   return {
     start_bar: first, bars,
@@ -32,14 +36,27 @@ function planAdaptiveMusic(song, options, format) {
   };
 }
 
-function bridgeChannel(channel, start, end, frames) {
-  const outro = channel.slice(end);
+function joinFrames(plan, samples) {
+  const { start, end } = plan;
+  return Math.min(plan.fade, start, Math.floor((end - start) / 2), samples - end);
+}
+
+function bridgeLoop(channel, start, end, frames) {
   const loop = channel.slice(start, end);
-  // La fin de boucle rejoint le signal juste avant son départ. La sortie reprend ce même raccord.
+  // The loop returns to the signal immediately before its first sample.
   for (let i = 0; i < frames; i++) {
     const weight = 0.5 - 0.5 * Math.cos(Math.PI * i / (frames - 1));
     const tail = loop.length - frames + i;
     loop[tail] = loop[tail] * (1 - weight) + channel[start - frames + i] * weight;
+  }
+  return loop;
+}
+
+function bridgeChannel(channel, start, end, frames) {
+  const outro = channel.slice(end);
+  const loop = bridgeLoop(channel, start, end, frames);
+  for (let i = 0; i < frames; i++) {
+    const weight = 0.5 - 0.5 * Math.cos(Math.PI * i / (frames - 1));
     outro[i] = channel[start + i] * (1 - weight) + outro[i] * weight;
   }
   return { intro: channel.subarray(0, start), loop, outro };
@@ -49,7 +66,7 @@ function exportAdaptiveMusic(song, plan, outputDir, base, bits, master) {
   const audio = !song.loop && master ? master
     : renderSong({ ...song, loop: false, targetSeconds: undefined, endFade: song.endFade || 0.65 });
   const { start, end } = plan;
-  const frames = Math.min(plan.fade, start, Math.floor((end - start) / 2), audio.samples - end);
+  const frames = joinFrames(plan, audio.samples);
   const left = bridgeChannel(audio.L, start, end, frames);
   const right = song.mono ? left : bridgeChannel(audio.R, start, end, frames);
   const files = [], segments = {};
@@ -75,4 +92,4 @@ function exportAdaptiveMusic(song, plan, outputDir, base, bits, master) {
   return { files, manifest: { ...manifest, manifest_path } };
 }
 
-module.exports = { planAdaptiveMusic, exportAdaptiveMusic };
+module.exports = { MAX_CROSSFADE_MS, planAdaptiveMusic, exportAdaptiveMusic, joinFrames, bridgeLoop };

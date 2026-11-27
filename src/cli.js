@@ -35,6 +35,8 @@ const USAGE = [
   ),
   ui('  finish <projet.soundmcp.json> [options] Rend le master et les livrables.', '  finish <project.soundmcp.json> [options]  Render a master and its deliverables.'),
   ui('  preview <projet> [projet B] [projet C] Préécoute à niveau égal.', '  preview <project> [project B] [project C]  Preview at matched loudness.'),
+  ui('  loop-choices <projet>                  Compare les raccords sur deux tours.',
+    '  loop-choices <project>               Compare loop joins over two turns.'),
   ui('  analyze <projet ou WAV>                Mesures et historique.', '  analyze <project or WAV>             Show measurements and editing history.'),
   ui('  sfx <kind> [options]                   Crée un effet sonore.', '  sfx <kind> [options]                 Create a sound effect.'),
   ui('  ambience <kind> [options]              Crée une ambiance en boucle parfaite.', '  ambience <kind> [options]            Create a seamless ambience loop.'),
@@ -66,6 +68,8 @@ const USAGE = [
   ui('  --ending-variants N   Génère 1 à 5 fins.', '  --ending-variants N  Generate 1 to 5 endings.'),
   ui('  Les options WAV, MIDI et éditions sont également disponibles.', '  WAV, MIDI, and edition options are also available.'),
   ui('  draft : --dur N, --seed N, --variants N, --title, --out, --json.', '  draft: --dur N, --seed N, --variants N, --title, --out, --json.'),
+  ui('  draft : --source-project projet.json --source-region début:mesures [--preserve motif,instruments,harmony].',
+    '  draft: --source-project project.json --source-region start:bars [--preserve motif,instruments,harmony].'),
   ui(
     '  draft : --midi-motif fichier.mid [--midi-track N] [--midi-channel N] [--midi-start N] [--midi-bars N].',
     '  draft: --midi-motif file.mid [--midi-track N] [--midi-channel N] [--midi-start N] [--midi-bars N].',
@@ -83,6 +87,8 @@ const USAGE = [
     '  finish: --adaptive start:bars [--adaptive-fade ms] exports intro, loop, outro, and a manifest.',
   ),
   ui('  preview : --blind, --section nom, --loop-region début:mesures, --dur N.', '  preview: --blind, --section name, --loop-region start:bars, --dur N.'),
+  ui('  loop-choices : --section nom, --loop-region début:mesures, --dur N, --min-bars N, --variants 2|3, --adaptive-fade ms.',
+    '  loop-choices: --section name, --loop-region start:bars, --dur N, --min-bars N, --variants 2|3, --adaptive-fade ms.'),
   '',
   ui('Options de sfx :', 'SFX options'),
   ui('  --seed N        Graine (variantes reproductibles).', '  --seed N        Seed for reproducible variants.'),
@@ -156,6 +162,10 @@ function parseArgs(argv) {
       case 'midi-channel': args.midiChannel = num('midi-channel'); break;
       case 'midi-start': args.midiStart = num('midi-start'); break;
       case 'midi-bars': args.midiBars = num('midi-bars'); break;
+      case 'source-project': args.sourceProject = str('source-project'); break;
+      case 'source-region': args.sourceRegion = region('source-region'); break;
+      case 'preserve': args.preserve = str('preserve').split(',').map((value) => value.trim()); break;
+      case 'min-bars': args.minBars = num('min-bars'); break;
       case 'source': args.source = str('source'); break;
       case 'source-out': args.sourceOut = str('source-out'); break;
       case 'pitch': args.pitch = num('pitch'); break;
@@ -250,10 +260,15 @@ async function main() {
     if (!args.midiMotif && Object.values(selectors).some((value) => value !== undefined)) {
       throw new Error(ui('Indique --midi-motif pour choisir une piste, un canal ou une plage MIDI.', 'Use --midi-motif before selecting a MIDI track, channel, or region.'));
     }
+    if (Boolean(args.sourceProject) !== Boolean(args.sourceRegion) || (args.preserve && !args.sourceProject)) {
+      throw new Error(ui('Utilise --source-project et --source-region ensemble, avec --preserve en option.',
+        'Use --source-project and --source-region together, with optional --preserve.'));
+    }
     display(await callTool('draft_music', { brief: args._.join(' '), duration_seconds: args.dur, tempo: args.bpm,
       key: args.key, loop: args.loop, seed: args.seed, variants: args.variants, sound_design: args.soundDesign,
       orchestral_percussion: args.orchestralPercussion, title: args.title, output_dir: args.out, palette: args.palette,
       midi_motif: args.midiMotif ? { path: args.midiMotif, ...selectors } : undefined,
+      source_excerpt: args.sourceProject ? { project_path: args.sourceProject, region: args.sourceRegion, preserve: args.preserve } : undefined,
       patch_paths: args.patchPaths, patch_roles: args.patchRoles }));
     return;
   }
@@ -284,6 +299,12 @@ async function main() {
   if (cmd === 'preview') {
     display(await callTool('preview_music', { project_paths: args._, section: args.section, region: args.loopRegion, max_seconds: args.dur,
       blind: args.blind, seed: args.seed, output_dir: args.out }));
+    return;
+  }
+  if (cmd === 'loop-choices') {
+    display(await callTool('compare_music_choices', { project_path: args._[0], criterion: 'loop',
+      section: args.section, region: args.loopRegion, max_seconds: args.dur, output_dir: args.out,
+      loop_options: { count: args.variants, min_bars: args.minBars, crossfade_ms: args.adaptiveFade } }));
     return;
   }
   if (cmd === 'analyze') {

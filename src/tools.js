@@ -42,7 +42,9 @@ const { CHOICES, PREFERENCES, readPreferences, applyPreference, withPreferences,
 const { ACTIONS: OUTPUT_ACTIONS, STATES: OUTPUT_STATES, recordOutputs, outputRenderSettings, manageOutputs } = require('./output-library');
 const { toolContract } = require('./tool-contracts');
 const { appendInlineAudio, INLINE_AUDIO_TOOLS } = require('./inline-audio');
-const { planAdaptiveMusic, exportAdaptiveMusic } = require('./adaptive-music');
+const { MAX_CROSSFADE_MS, planAdaptiveMusic, exportAdaptiveMusic } = require('./adaptive-music');
+const { previewLoopChoices } = require('./loop-audition');
+const { MAX_EXCERPT_BARS, PRESERVE_EXCERPT, readDevelopment } = require('./develop-excerpt');
 const { readMidiMotif } = require('./midi-motif');
 
 const DEFAULT_OUTPUT_DIR = path.join(__dirname, '..', 'output');
@@ -426,7 +428,7 @@ const REGION_SELECTION = { allOf: [
   { if: { properties: { full: { const: true } }, required: ['full'] },
     then: { not: { anyOf: [{ required: ['section'] }, { required: ['region'] }, { required: ['max_seconds'] }] } } },
 ] };
-const MUSIC_COMPARISON_CRITERIA = [...PREFERENCES, 'build'];
+const MUSIC_COMPARISON_CRITERIA = [...PREFERENCES, 'build', 'loop'];
 const INLINE_AUDIO = { type: 'boolean', default: false,
   description: ui(
     'Ajoute une préécoute audio MCP mono à sonie alignée, jusqu’à 8 s par prise. Les WAV complets restent disponibles par chemin.',
@@ -665,16 +667,16 @@ const TOOLS = [
         'With brief, variants controls the take count for one idea. With briefs, each entry produces a track. Explicit tempo and duration_seconds override the brief. Exclusions in without and the brief are combined.',
       ),
       ui(
-        'Pour reprendre un morceau de la collection seul, réutilise son brief et son seed avec shared_options et variants=1. Passe le project_path retenu à finish_music. Pour exporter directement depuis un style, utilise create_music.',
-        'To recreate one collection track, use its brief and seed with shared_options and variants=1. Pass the chosen project_path to finish_music. Use create_music to render directly from a style.',
+        'Pour reprendre un morceau de la collection seul, copie les champs du résultat shared_options à la racine du nouvel appel. Ajoute le brief et le seed du morceau avec variants=1.',
+        'To recreate one collection track, copy the returned shared_options fields to the top level of the new call. Add the track’s brief and seed with variants=1.',
       ),
       ui(
-        'Avec midi_motif, reprends les notes et le rythme d’une ligne MIDI et laisse SoundMCP en écrire l’accompagnement.',
-        'Use midi_motif to preserve a MIDI line\'s pitches and rhythm while SoundMCP composes its accompaniment.',
+        'Pars d’une ligne MIDI avec midi_motif ou d’un passage SoundMCP avec source_excerpt. Le brief décrit le nouveau morceau.',
+        'Start from a MIDI line with midi_motif or a saved SoundMCP passage with source_excerpt. The brief describes the new track.',
       ),
       ui(
-        'Pour confier le thème à un timbre précis, donne instrument_roles.mel, par exemple cello.',
-        'To give the theme to a particular instrument, set instrument_roles.mel, for example cello.',
+        'Pour le master, passe le project_path retenu à finish_music. Pour composer et exporter directement depuis un style, appelle create_music.',
+        'Pass the selected project_path to finish_music for the master. To compose and export directly from a style, use create_music.',
       ),
     ].join('\n'),
     inputSchema: { type: 'object', properties: {
@@ -692,21 +694,41 @@ const TOOLS = [
         'Draft count for brief. Defaults to 3. With briefs, each track gets one draft.',
       ) },
       ...DRAFT_MUSIC_OPTIONS,
+      source_excerpt: { type: 'object', additionalProperties: false, required: ['project_path', 'region'],
+        description: ui('Développe un extrait d’un projet SoundMCP avec un nouveau brief. Le fichier source reste en lecture seule.',
+          'Develop an excerpt of a SoundMCP project with a new brief. The source project is read-only.'),
+        properties: {
+          project_path: PROJECT_SCHEMA,
+          region: { ...REGION_SCHEMA, additionalProperties: false, properties: {
+            ...REGION_SCHEMA.properties, bars: { ...REGION_SCHEMA.properties.bars, maximum: MAX_EXCERPT_BARS },
+          } },
+          preserve: { type: 'array', minItems: 1, maxItems: 3, uniqueItems: true, items: { enum: PRESERVE_EXCERPT },
+            description: ui('À reprendre. motif extrait jusqu’à deux mesures de mélodie, instruments garde les timbres dominants, harmony garde les accords de la plage. Par défaut, les trois.',
+              'What to carry over. motif extracts up to two bars of melody, instruments keeps dominant sounds, and harmony keeps the region’s chords. Defaults to all three.') },
+        },
+      },
       inline_audio: INLINE_AUDIO,
       seed: SEED_SCHEMA,
       title: { ...EXPORT_PROPERTIES.title, description: ui('Titre des esquisses ou de la collection. Sert à nommer leur dossier.', 'Draft or collection title used in the directory name.') },
       output_dir: OUTPUT_DIR,
     }, oneOf: [{ required: ['brief'] }, { required: ['briefs'] }], not: { anyOf: [
       { required: ['briefs', 'variants'] }, { required: ['motif', 'midi_motif'] },
+      ...['briefs', 'motif', 'midi_motif'].map((field) => ({ required: ['source_excerpt', field] })),
     ] } },
   },
   {
     name: 'finish_music',
     title: ui('Livrer un master', 'Render a master'),
-    description: ui(
-      'Exporte le master d’un projet déjà choisi. Écrit les livrables et leur manifeste dans un sous-dossier unique, à côté du projet par défaut. Le rendu complet peut prendre plus de temps qu’un extrait. Pour écouter un passage avant livraison, utilise preview_music.',
-      'Render the master of the chosen project. Writes the deliverables and manifest to a unique subdirectory beside the project by default. The full render may take longer than a preview. Use preview_music to check an excerpt first.',
-    ),
+    description: [
+      ui('Exporte le master d’un projet choisi. Chaque appel crée un sous-dossier unique à côté du projet par défaut et préserve les exports précédents.',
+        'Render the master of a selected project. Each call creates a unique subdirectory beside the project by default and preserves earlier exports.'),
+      ui('Avec format=midi, définis stems=false ou omets-le et omets adaptive. Pour livrer intro, boucle et sortie, utilise wav ou both avec adaptive.',
+        'For format=midi, set stems to false or omit it, and omit adaptive. Use wav or both with adaptive to deliver intro, loop, and outro.'),
+      ui('Passe files[].adaptive de compare_music_choices à adaptive. Le loop_region à la racine sert aux éditions.',
+        'Pass files[].adaptive from compare_music_choices as adaptive. The top-level loop_region is for editions.'),
+      ui('Pour vérifier un passage avant le rendu complet, utilise preview_music.',
+        'Use preview_music to check an excerpt before rendering the full master.'),
+    ].join('\n'),
     inputSchema: { type: 'object', required: ['project_path'], properties: { ...EXPORT_PROPERTIES, project_path: PROJECT_SCHEMA,
       format: { ...EXPORT_PROPERTIES.format, default: 'both' },
       bit_depth: { ...EXPORT_PROPERTIES.bit_depth, default: 24 },
@@ -724,7 +746,7 @@ const TOOLS = [
         ),
         properties: {
           loop_region: { ...REGION_SCHEMA, description: ui('Mesures à répéter. Garde une mesure ou plus avant et après la boucle.', 'Bars to repeat. Leave at least one bar before and after the loop.') },
-          crossfade_ms: { ...NUMBER(5, 100), default: 25, description: ui(
+          crossfade_ms: { ...NUMBER(5, MAX_CROSSFADE_MS), default: 25, description: ui(
             'Durée maximale du fondu de raccord en millisecondes. Les bornes temporelles restent fixes.',
             'Maximum crossfade length in milliseconds. Segment boundaries stay fixed.',
           ) },
@@ -736,10 +758,14 @@ const TOOLS = [
   {
     name: 'preview_music',
     title: ui('Préécouter un projet musical', 'Preview a music project'),
-    description: ui(
-      'Écoute un passage d’un ou plusieurs projets musicaux déjà enregistrés. Écrit des WAV à sonie alignée dans un nouveau sous-dossier. Utilise compare_music_choices pour générer deux versions d’un même projet, ou play_sound pour écouter un timbre isolé.',
-      'Preview a section of one or more saved projects. Writes WAV files at matched loudness in a new subdirectory. Use compare_music_choices for variants of one project or play_sound to audition an individual sound.',
-    ),
+    description: [
+      ui('Écoute des projets déjà enregistrés. Écrit des WAV à sonie alignée dans un nouveau dossier et conserve les partitions source.',
+        'Audition saved projects. Writes loudness-matched WAV files in a new directory and preserves the source scores.'),
+      ui('Pour comparer plusieurs projets sur les mêmes numéros de mesures, utilise region, qui doit tenir dans chacun. Un nom section doit pouvoir être résolu dans chaque projet.',
+        'To compare the same numbered bars across projects, use region, which must fit each score. A named section must resolve in each project.'),
+      ui('Pour générer des alternatives d’arrangement ou de boucle à partir d’un seul projet, utilise compare_music_choices. Pour un timbre isolé, utilise play_sound.',
+        'Use compare_music_choices to generate arrangement or loop alternatives from one project. Use play_sound for a single sound.'),
+    ].join('\n'),
     inputSchema: { type: 'object', properties: { project_path: PROJECT_SCHEMA,
       project_paths: { type: 'array', minItems: 1, maxItems: 3, items: PROJECT_SCHEMA },
       ...REGION_PROPERTIES,
@@ -750,22 +776,43 @@ const TOOLS = [
   },
   {
     name: 'compare_music_choices',
-    title: ui('Comparer deux variantes musicales', 'Compare two music variants'),
-    description: ui(
-      'Crée deux variantes A/B d’un projet selon un choix d’arrangement. Écrit les extraits anonymes à sonie alignée et les projets dans un nouveau sous-dossier. Passe comparison_path à learn_music_preference après un choix explicite sur accompaniment ou breath. Pour écouter des projets déjà prêts, utilise preview_music.',
-      'Create two project variants for an arrangement decision. Writes anonymous, loudness-matched excerpts and projects in a new subdirectory. Pass comparison_path to learn_music_preference after an explicit accompaniment or breath choice. Use preview_music for existing projects.',
-    ),
+    title: ui('Comparer des choix dans un projet musical', 'Compare choices within a music project'),
+    description: [
+      ui('Compare des variantes tirées d’un seul projet. Écrit des WAV à sonie alignée dans un nouveau dossier.',
+        'Compare alternatives derived from one project. Writes loudness-matched WAV files in a new directory.'),
+      ui('Avec loop, classe jusqu’à trois raccords. Chaque WAV joue deux tours. Passe adaptive de la prise choisie à finish_music sur le projet source.',
+        'With loop, rank up to three joins. Each WAV plays two turns. Pass the chosen take’s adaptive settings to finish_music on the source project.'),
+      ui('Avec accompaniment, breath ou build, crée deux variantes anonymes et leurs projets. Seuls accompaniment et breath donnent un comparison_path pour learn_music_preference.',
+        'With accompaniment, breath, or build, create two blind variants and their projects. Only accompaniment and breath provide a comparison_path for learn_music_preference.'),
+      ui('Utilise preview_music pour écouter un projet existant sans proposer de variantes.',
+        'Use preview_music to audition an existing project without generating alternatives.'),
+    ].join('\n'),
     inputSchema: { type: 'object', required: ['project_path', 'criterion'], properties: {
       project_path: PROJECT_SCHEMA, criterion: { type: 'string', enum: MUSIC_COMPARISON_CRITERIA,
         description: ui(
-          'Teste la présence de l’accompagnement, la respiration mélodique ou le type de montée avant une arrivée.',
-          'Compare accompaniment presence, melodic breathing room, or the build before an arrival.',
+          'Choisis la présence de l’accompagnement, les respirations, la montée ou les points de reprise d’une boucle.',
+          'Compare accompaniment presence, melodic breathing room, a build, or musical loop points.',
         ) },
       ...REGION_PROPERTIES, ...BUILD_PROPERTIES,
+      max_seconds: { ...REGION_PROPERTIES.max_seconds, description: ui(
+        'Durée cible de l’extrait, 18 s par défaut. Avec loop, durée maximale d’un tour, 45 s par défaut.',
+        'Target excerpt duration, 18 s by default. With loop, maximum duration per turn, 45 s by default.',
+      ) },
+      loop_options: { type: 'object', additionalProperties: false, description: ui(
+        'Réglages pour criterion=loop. La région et la durée peuvent limiter le nombre de prises.',
+        'Options for criterion=loop. The region and duration can limit the number of takes.',
+      ), properties: {
+        count: { type: 'integer', enum: [2, 3], default: 3, description: ui('Nombre maximal de raccords proposés.', 'Maximum number of proposed joins.') },
+        min_bars: { type: 'integer', minimum: 1, description: ui('Durée minimale en mesures, huit par défaut si la plage le permet.',
+          'Minimum duration in bars, eight by default when the range allows it.') },
+        crossfade_ms: { ...NUMBER(5, MAX_CROSSFADE_MS), default: 400, description: ui(
+          'Durée maximale du fondu sans déplacer les mesures.', 'Maximum crossfade duration without shifting the bar boundaries.',
+        ) },
+      } },
       inline_audio: INLINE_AUDIO,
       section: { ...SECTION_SELECTOR, description: ui(
-        'Avec build, indique la section où débute l’arrivée à la place de arrival_bar. Avec accompaniment ou breath, sélectionne la section à écouter à la place de region.',
-        'For build, use the arrival section instead of arrival_bar. For accompaniment or breath, choose a section instead of region.',
+        'Avec build, indique la section d’arrivée à la place de arrival_bar. Sinon, choisis la section à écouter ou à parcourir à la place de region.',
+        'For build, choose the arrival section instead of arrival_bar. Otherwise, choose the section to audition or search instead of region.',
       ) },
       amount: { ...BUILD_PROPERTIES.amount, description: ui(
         'Pour build, intensité de la montée. Utilise une valeur strictement positive, jusqu’à 1 (effet complet).',
@@ -775,14 +822,18 @@ const TOOLS = [
         'Pour build, mesures à écouter à partir de l’arrivée. Par défaut, jusqu’à 2 mesures disponibles.',
         'For build, the number of bars to audition from the arrival. Defaults to up to 2 available bars.',
       ) },
-      seed: { ...SEED_SCHEMA, description: ui('Graine déterminant l’ordre anonyme des prises A et B.', 'Seed controlling the anonymous order of takes A and B.') }, output_dir: OUTPUT_DIR,
+      seed: { ...SEED_SCHEMA, description: ui('Graine de l’ordre anonyme des prises A et B. Omet pour loop.', 'Seed for the blind A/B order. Omit for loop.') }, output_dir: OUTPUT_DIR,
     }, if: { properties: { criterion: { const: 'build' } } }, then: { allOf: [
       { not: { anyOf: [{ required: ['region'] }, { required: ['full'] }, { required: ['max_seconds'] }, { required: ['section', 'arrival_bar'] }] } },
       { properties: { amount: { exclusiveMinimum: 0 } } },
     ] }, else: { allOf: [
       ...REGION_SELECTION.allOf,
       { not: { anyOf: [{ required: ['arrival_bar'] }, { required: ['before_bars'] }, { required: ['after_bars'] }, { required: ['amount'] }] } },
-    ] } },
+    ] }, allOf: [{
+      if: { properties: { criterion: { const: 'loop' } } },
+      then: { not: { anyOf: [{ required: ['full'] }, { required: ['seed'] }] } },
+      else: { not: { required: ['loop_options'] } },
+    }] },
   },
   {
     name: 'learn_music_preference',
@@ -1548,11 +1599,20 @@ function draftMusic(args) {
   if (collection && (!Array.isArray(args.briefs) || args.briefs.length < 3 || args.briefs.length > 6)) {
     throw new Error(ui('briefs attend de trois à six briefs, un par morceau.', 'briefs requires three to six briefs, one per track.'));
   }
-  const palette = args.palette ?? 'studio';
+  const source = args.source_excerpt;
+  if (source !== undefined && (!source || typeof source !== 'object' || Array.isArray(source) ||
+      Object.keys(source).some((field) => !['project_path', 'region', 'preserve'].includes(field)) ||
+      ['briefs', 'motif', 'midi_motif'].some((field) => args[field] !== undefined))) {
+    throw new Error(ui('Utilise source_excerpt avec un seul brief, sans motif ni midi_motif.',
+      'Use source_excerpt with one brief and omit motif and midi_motif.'));
+  }
+  const development = source === undefined ? undefined : readDevelopment(openProject(source.project_path).song, source);
+  const palette = args.palette ?? (development?.excerpt.preserve.includes('instruments') ? development.palette : 'studio');
   if (!PALETTES.includes(palette)) throw new Error(ui('palette attend studio ou synth.', 'palette must be studio or synth.'));
   if (args.midi_motif !== undefined && args.motif !== undefined) throw new Error(ui('Choisis motif ou midi_motif.', 'Choose motif or midi_motif.'));
   const midiImport = args.midi_motif === undefined ? undefined : readMidiMotif(args.midi_motif);
-  const briefOptions = midiImport ? { ...args, midiImport } : args;
+  const briefOptions = development ? { ...args, development, motif: development.motif }
+    : midiImport ? { ...args, midiImport } : args;
   const intents = Array.from(collection ? args.briefs : [args.brief], (brief, index) => {
     try {
       return interpretBrief(brief, briefOptions);
@@ -1565,10 +1625,16 @@ function draftMusic(args) {
     throw new Error(ui('build_contour attend progressive ou break.', 'build_contour must be progressive or break.'));
   }
   const choices = preferencesFor(args, true);
-  const plans = intents.map((intent) => ({ ...intent, palette, autoMix: args.auto_mix ?? intent.phrasing === 'lyrical',
-    ...(args.build_contour ? { buildContour: args.build_contour } : {}),
-    ...(Object.keys(choices).length ? { preferences: choices } : {}) }));
-  const patches = importPatches(args.patch_paths);
+  const plans = intents.map((intent) => {
+    const imported = development && Object.fromEntries(Object.entries(development.roles)
+      .filter(([, instrument]) => !intent.excluded.includes(instrument)));
+    return { ...intent, palette, autoMix: args.auto_mix ?? intent.phrasing === 'lyrical',
+      ...(development ? { sourceExcerpt: development.excerpt, sourceProgression: development.progression,
+        instrumentRoles: { ...imported, ...intent.instrumentRoles } } : {}),
+      ...(args.build_contour ? { buildContour: args.build_contour } : {}),
+      ...(Object.keys(choices).length ? { preferences: choices } : {}) };
+  });
+  const patches = importPatches(args.patch_paths, development?.patches);
   const calibrations = loadCalibrations(args.calibration_paths);
   const seed = musicSeed(args.seed);
   const count = args.variants ?? 3;
@@ -1605,7 +1671,9 @@ function draftMusic(args) {
       warnings.push(ui('Durée musicale arrondie à une mesure complète pour la boucle.', 'Music duration rounded to a whole bar for looping.'));
     }
     if (!plan.loop && song.targetSeconds > plan.duration + 0.05) {
-      warnings.push(plan.midi_source
+      warnings.push(plan.sourceExcerpt
+        ? ui('Durée étendue pour présenter l’extrait et sa cadence.', 'Duration extended to fit the source excerpt and cadence.')
+        : plan.midi_source
         ? ui('Durée étendue pour présenter le motif MIDI complet et une cadence.', 'Duration extended to fit the full MIDI motif and a cadence.')
         : ui('Une mesure entière dépasse la durée demandée à ce tempo.', 'A full bar is longer than the requested duration at this tempo.'));
     }
@@ -1625,7 +1693,8 @@ function draftMusic(args) {
       ui('\nPour livrer un morceau, passe son project_path à finish_music.', '\nPass a track’s project_path to finish_music to render it.'), result);
   }
   const [plan] = plans;
-  const result = { seed, plan, candidates, firstToPreview: preferred.id };
+  const result = { seed, plan, candidates, firstToPreview: preferred.id,
+    ...(development ? { source_excerpt: development.excerpt } : {}) };
   result.report_path = jsonFile(outputDir, 'esquisses.json', result);
   const summary = ui(`${count} esquisse(s) instrumentale(s), style ${plan.style}, ${plan.tempo} BPM.\n`,
     `${count} instrumental ${count === 1 ? 'draft' : 'drafts'} · ${plan.style} · ${plan.tempo} BPM.\n`);
@@ -1683,6 +1752,24 @@ function mixMusic(args) {
 
 function compareMusicChoices(args) {
   const { criterion } = args;
+  if (criterion === 'loop') {
+    if (['full', 'seed', 'arrival_bar', 'before_bars', 'after_bars', 'amount'].some((name) => args[name] !== undefined)) {
+      throw new Error(ui('Avec loop, choisis une région, max_seconds ou loop_options.', 'For loop, use a region, max_seconds, or loop_options.'));
+    }
+    const { song } = openProject(args.project_path);
+    const takes = previewLoopChoices(song, args);
+    const levels = matchLevels(takes.map((take) => take.audio), -17, takes.map((take) => take.reference));
+    const folder = newFolder(outputDirectory(args.output_dir), ui('Raccords de boucle', 'Loop joins'));
+    const files = takes.map(({ audio, adaptive, metrics, seconds }, index) => {
+      const label = ['A', 'B', 'C'][index];
+      return { label, path: writeAudition(folder, label, audio), ...levels[index], adaptive, metrics, join_seconds: seconds };
+    });
+    return resultText(ui('Raccords classés, deux tours par WAV.', 'Ranked joins, two turns per WAV.') + '\n' +
+      files.map(({ label, path: file, adaptive: { loop_region } }) =>
+        `${label} · ${ui('mesure', 'bar')} ${loop_region.start_bar} · ${loop_region.bars} ${ui('mesure(s)', 'bars')} · ${file}`).join('\n') +
+      '\n' + ui('Passe adaptive de la prise choisie à finish_music.', 'Pass the chosen take’s adaptive settings to finish_music.'), { criterion, files });
+  }
+  if (args.loop_options !== undefined) throw new Error(ui('loop_options exige criterion=loop.', 'loop_options requires criterion=loop.'));
   if (criterion === 'build') {
     if (['region', 'full', 'max_seconds'].some((name) => args[name] !== undefined)) {
       throw new Error(ui(

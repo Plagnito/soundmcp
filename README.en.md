@@ -46,6 +46,16 @@ node src/cli.js list
 
 Briefs and key names accept English and French in either display language. For a stored project, use the section name from `inspect_score` or its one-based index. The aliases `Intro`, `Theme`, `Bridge`, and `Outro` work with the default draft sections.
 
+### Develop an excerpt
+
+Send `draft_music` a new `brief` and `source_excerpt: {"project_path": "...", "region": {"start_bar": 3, "bars": 3}}`. The draft carries over up to two bars of melody, the region’s dominant instruments, and its chords by default. Set `source_excerpt.preserve` to keep a subset of `motif`, `instruments`, and `harmony`. Use `inspect_score` to find the bars.
+
+### Compare loop joins
+
+Call `compare_music_choices` with `criterion: "loop"`. Each ranked WAV plays two turns at matched loudness near the join. An inline clip centers on the join. Limit the search with `region` or `section` and set `max_seconds` to the longest acceptable turn. Copy the chosen `files[].adaptive` into `finish_music` with the original `project_path` to export the three segments.
+
+The [Web Audio example](examples/web-audio-adaptive/) loads the resulting manifest and schedules intro, loop, and outro on the audio clock. It has a dedicated music gain for game mixers.
+
 To render directly from a style, use `create_music` or the CLI.
 
 ```bash
