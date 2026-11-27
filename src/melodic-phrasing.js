@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { SCALES, degreeSemitone } = require('./theory');
 
 const PHRASINGS = ['style', 'lyrical'];
@@ -17,7 +19,7 @@ const pitchClass = (midi) => (midi + 120) % 12;
 
 function readPhrasing(value) {
   if (value === undefined) return 'style';
-  if (!PHRASINGS.includes(value)) throw new Error('phrasing attend style ou lyrical.');
+  if (!PHRASINGS.includes(value)) throw new Error(ui('phrasing attend style ou lyrical.', 'phrasing must be style or lyrical.'));
   return value;
 }
 

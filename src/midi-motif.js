@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { COMMON_METER, isMeter } = require('./music-clock');
@@ -13,7 +15,7 @@ class Reader {
     this.offset = 0;
   }
   take(size) {
-    if (size > this.remaining) throw new Error('Fichier MIDI tronqué.');
+    if (size > this.remaining) throw new Error(ui('Fichier MIDI tronqué.', 'Truncated MIDI file.'));
     const data = this.bytes.subarray(this.offset, this.offset + size);
     this.offset += size;
     return data;
@@ -22,12 +24,12 @@ class Reader {
     return this.bytes.length - this.offset;
   }
   byte() {
-    if (!this.remaining) throw new Error('Fichier MIDI tronqué.');
+    if (!this.remaining) throw new Error(ui('Fichier MIDI tronqué.', 'Truncated MIDI file.'));
     return this.bytes[this.offset++];
   }
   dataByte() {
     const byte = this.byte();
-    if (byte >= 0x80) throw new Error('Octet de données MIDI invalide.');
+    if (byte >= 0x80) throw new Error(ui('Octet de données MIDI invalide.', 'Invalid MIDI data byte.'));
     return byte;
   }
   number() {
@@ -37,7 +39,7 @@ class Reader {
       value = value * 128 + (byte & 0x7f);
       if (byte < 0x80) return value;
     }
-    throw new Error('Entier MIDI de longueur variable invalide.');
+    throw new Error(ui('Entier MIDI de longueur variable invalide.', 'Invalid MIDI variable-length integer.'));
   }
   chunk() {
     const header = this.take(8);
@@ -66,13 +68,13 @@ function parseTrack(bytes) {
       } else if (status === 0xf0 || status === 0xf7) {
         reader.take(reader.number());
       } else {
-        throw new Error('Événement système MIDI inconnu.');
+        throw new Error(ui('Événement système MIDI inconnu.', 'Unknown MIDI system event.'));
       }
       continue;
     }
     let first;
     if (status < 0x80) {
-      if (!running) throw new Error('Statut MIDI manquant avant les données.');
+      if (!running) throw new Error(ui('Statut MIDI manquant avant les données.', 'Missing MIDI status before data.'));
       first = status;
       status = running;
     } else {
@@ -100,28 +102,31 @@ function parseTrack(bytes) {
 }
 
 function readMidi(file) {
-  if (!fs.statSync(file).isFile()) throw new Error('L’import MIDI attend un fichier local.');
+  if (!fs.statSync(file).isFile()) throw new Error(ui('L’import MIDI attend un fichier local.', 'MIDI import requires a local file.'));
   const handle = fs.openSync(file, 'r');
   try {
     const stat = fs.fstatSync(handle);
     const { size } = stat;
-    if (!stat.isFile() || size < 14 || size > MAX_BYTES) throw new Error('Le fichier MIDI doit faire entre 14 octets et 8 Mio.');
+    if (!stat.isFile() || size < 14 || size > MAX_BYTES) throw new Error(ui('Le fichier MIDI doit faire entre 14 octets et 8 Mio.', 'The MIDI file must be between 14 bytes and 8 MiB.'));
     const bytes = Buffer.allocUnsafe(size);
-    if (fs.readSync(handle, bytes, 0, size, 0) !== size) throw new Error('Fichier MIDI tronqué.');
+    if (fs.readSync(handle, bytes, 0, size, 0) !== size) throw new Error(ui('Fichier MIDI tronqué.', 'Truncated MIDI file.'));
     const reader = new Reader(bytes);
     const header = reader.chunk();
-    if (header.id !== 'MThd' || header.data.length < 6) throw new Error('En-tête Standard MIDI File attendu.');
+    if (header.id !== 'MThd' || header.data.length < 6) throw new Error(ui('En-tête Standard MIDI File attendu.', 'Expected a Standard MIDI File header.'));
     const format = header.data.readUInt16BE(0), count = header.data.readUInt16BE(2);
     const ppq = header.data.readUInt16BE(4);
     if (format > 1 || !count || (format === 0 && count !== 1) || !ppq || ppq >= 0x8000) {
-      throw new Error('L’import attend un fichier MIDI SMF 0 ou 1 avec une résolution en ticks par noire.');
+      throw new Error(ui(
+        'L’import attend un fichier MIDI SMF 0 ou 1 avec une résolution en ticks par noire.',
+        'Import requires an SMF 0 or 1 MIDI file with a ticks-per-quarter resolution.',
+      ));
     }
     const tracks = [];
     while (reader.remaining && tracks.length < count) {
       const chunk = reader.chunk();
       if (chunk.id === 'MTrk') tracks.push(parseTrack(chunk.data));
     }
-    if (tracks.length !== count) throw new Error('Piste MIDI manquante.');
+    if (tracks.length !== count) throw new Error(ui('Piste MIDI manquante.', 'Missing MIDI track.'));
     return { ppq, tracks };
   } finally {
     fs.closeSync(handle);
@@ -138,7 +143,7 @@ function motifWindow(ppq, changes, first, bars) {
   let start, ticksPerBar, selectedMeter;
   for (let bar = 1; bar < first + bars; bar++) {
     while (changes[index]?.tick <= tick + 1e-8) meter = changes[index++].meter;
-    if (!isMeter(meter)) throw new Error('Signature MIDI hors des mesures prises en charge par SoundMCP.');
+    if (!isMeter(meter)) throw new Error(ui('Signature MIDI hors des mesures prises en charge par SoundMCP.', 'SoundMCP does not support this MIDI time signature.'));
     const length = ppq * meter[0] * 4 / meter[1];
     if (bar === first) {
       start = tick;
@@ -146,10 +151,10 @@ function motifWindow(ppq, changes, first, bars) {
       ticksPerBar = length;
     }
     if (bar >= first && (meter[0] !== selectedMeter[0] || meter[1] !== selectedMeter[1])) {
-      throw new Error('Choisis une plage MIDI dont la signature rythmique reste constante.');
+      throw new Error(ui('Choisis une plage MIDI dont la signature rythmique reste constante.', 'Select a MIDI region with one time signature.'));
     }
     tick += length;
-    if (changes[index]?.tick < tick - 1e-8) throw new Error('Le fichier change de signature au milieu d’une mesure.');
+    if (changes[index]?.tick < tick - 1e-8) throw new Error(ui('Le fichier change de signature au milieu d’une mesure.', 'The file changes time signature in the middle of a bar.'));
   }
   return { start, end: tick, meter: selectedMeter, ticksPerBar };
 }
@@ -157,17 +162,20 @@ function motifWindow(ppq, changes, first, bars) {
 function readMidiMotif(options) {
   if (!options || typeof options !== 'object' || Array.isArray(options) ||
       Object.keys(options).some((key) => !['path', 'track', 'channel', 'start_bar', 'bars'].includes(key))) {
-    throw new Error('midi_motif attend path et les sélecteurs facultatifs track, channel, start_bar et bars.');
+    throw new Error(ui(
+      'midi_motif attend path et les sélecteurs facultatifs track, channel, start_bar et bars.',
+      'midi_motif requires path and accepts the optional track, channel, start_bar, and bars selectors.',
+    ));
   }
   const { path: file, track, channel, start_bar = 1, bars = 2 } = options;
-  if (typeof file !== 'string' || !file.trim()) throw new Error('Indique le chemin local du fichier MIDI.');
+  if (typeof file !== 'string' || !file.trim()) throw new Error(ui('Indique le chemin local du fichier MIDI.', 'Supply the local MIDI file path.'));
   if (!Number.isInteger(start_bar) || start_bar < 1 || start_bar > 10000 || ![1, 2].includes(bars) ||
       (track !== undefined && (!Number.isInteger(track) || track < 1)) ||
       (channel !== undefined && (!Number.isInteger(channel) || channel < 1 || channel > 16))) {
-    throw new Error('Piste ou canal MIDI invalide, ou plage en dehors de 1 à 2 mesures.');
+    throw new Error(ui('Piste ou canal MIDI invalide, ou plage en dehors de 1 à 2 mesures.', 'Invalid MIDI track or channel, or a region outside the 1 to 2 bar limit.'));
   }
   const { ppq, tracks } = readMidi(path.resolve(file));
-  if (track > tracks.length) throw new Error(`Le fichier MIDI a ${tracks.length} piste(s).`);
+  if (track > tracks.length) throw new Error(ui(`Le fichier MIDI a ${tracks.length} piste(s).`, `The MIDI file has ${tracks.length} track(s).`));
   const { start, end, meter, ticksPerBar } = motifWindow(ppq, timingChanges(tracks, 'meters'), start_bar, bars);
   const available = tracks.map(({ notes }) => notes.filter((n) => n.tick >= start && n.tick < end &&
     (channel === undefined ? n.channel !== 10 : n.channel === channel))
@@ -176,9 +184,9 @@ function readMidiMotif(options) {
   const selected = available[trackIndex] ?? [];
   const selectedChannel = channel ?? selected[0]?.channel;
   const notes = selected.filter((note) => note.channel === selectedChannel);
-  if (!notes.length) throw new Error('Aucune note complète sur cette piste et ce canal MIDI dans la plage choisie.');
+  if (!notes.length) throw new Error(ui('Aucune note complète sur cette piste et ce canal MIDI dans la plage choisie.', 'No complete notes on this MIDI track and channel in the selected region.'));
   if (notes.length > 24 || notes.some((note, i) => i && note.tick < notes[i - 1].end)) {
-    throw new Error('Choisis une plage MIDI monophonique de 24 notes au plus, sans chevauchement.');
+    throw new Error(ui('Choisis une plage MIDI monophonique de 24 notes au plus, sans chevauchement.', 'Select a monophonic MIDI region of up to 24 non-overlapping notes.'));
   }
   const motif = notes.map(({ tick, end: stop, midi, velocity }) => {
     const beat = (tick - start) * 4 / ticksPerBar;

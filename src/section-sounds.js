@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { INSTRUMENTS } = require('./dsp');
 const { COLORS, SOUNDS } = require('./texture-voices');
 const { parseKey, midiToFreq } = require('./theory');
@@ -14,22 +16,25 @@ const TEXTURES = Object.keys(SOUNDS).filter((id) => SOUNDS[id][2] === 'texture')
 function readSectionSounds(section, label) {
   const { color, instruments, textures } = section;
   const orchestral = readOrchestralPercussion(section.orchestral_percussion);
-  if (color !== undefined && !Object.hasOwn(COLORS, color)) throw new Error(`${label} : couleur de mix inconnue.`);
+  if (color !== undefined && !Object.hasOwn(COLORS, color)) throw new Error(ui(`${label} : couleur de mix inconnue.`, `${label}: unknown mix color.`));
   if (instruments !== undefined && (!instruments || typeof instruments !== 'object' || Array.isArray(instruments) ||
       Object.entries(instruments).some(([part, inst]) => !SOUND_PARTS.includes(part) ||
         !(isCustom(inst) || Object.hasOwn(INSTRUMENTS, inst)) || TEXTURES.includes(inst)))) {
-    throw new Error(`${label} : instruments attend des pupitres mélodiques et des instruments connus. Consulte la catégorie sounds de list_catalog.`);
+    throw new Error(ui(
+      `${label} : instruments attend des pupitres mélodiques et des instruments connus. Consulte la catégorie sounds de list_catalog.`,
+      `${label}: instruments requires melody parts and known instruments. See the sounds category of list_catalog.`,
+    ));
   }
-  if (textures !== undefined && (!Array.isArray(textures) || textures.length > 32)) throw new Error(`${label} : jusqu’à 32 textures attendues.`);
+  if (textures !== undefined && (!Array.isArray(textures) || textures.length > 32)) throw new Error(ui(`${label} : jusqu’à 32 textures attendues.`, `${label}: expected up to 32 textures.`));
   const notes = textures?.map((texture) => {
-    if (!texture || !TEXTURES.includes(texture.sound)) throw new Error(`${label} : texture inconnue. Consulte la catégorie sounds de list_catalog.`);
+    if (!texture || !TEXTURES.includes(texture.sound)) throw new Error(ui(`${label} : texture inconnue. Consulte la catégorie sounds de list_catalog.`, `${label}: unknown texture. See the sounds category of list_catalog.`));
     const { sound, bar = 1, beat = 0, duration = 2, level = 0.26, pan = 0, timbre = 0.5, midi } = texture;
     const pulses = section.meter?.[0] ?? 4;
     if (!Number.isInteger(bar) || bar < 1 || bar > section.bars || !Number.isFinite(beat) || beat < 0 || beat >= pulses ||
         !Number.isFinite(duration) || duration < 0.08 || duration > 32 || !Number.isFinite(level) || level < 0.02 || level > 1 ||
         !Number.isFinite(pan) || Math.abs(pan) > 1 || !Number.isFinite(timbre) || timbre < 0 || timbre > 1 ||
         (midi !== undefined && (!Number.isInteger(midi) || midi < 0 || midi > 127))) {
-      throw new Error(`${label} : position, durée, niveau ou timbre de texture invalide.`);
+      throw new Error(ui(`${label} : position, durée, niveau ou timbre de texture invalide.`, `${label}: invalid texture position, duration, level, or timbre.`));
     }
     return { sound, bar, beat, duration, level, pan, timbre, ...(midi === undefined ? {} : { midi }) };
   });
@@ -56,7 +61,7 @@ function automaticSounds(section, index, count, seed) {
 }
 
 function applySounds(song, design = 'classic', options = {}) {
-  if (!SOUND_DESIGNS.includes(design)) throw new Error('sound_design attend classic ou evolving.');
+  if (!SOUND_DESIGNS.includes(design)) throw new Error(ui('sound_design attend classic ou evolving.', 'sound_design must be classic or evolving.'));
   const source = song.meta.sections;
   if (design === 'classic' && !source.some((s) => s.color || s.instruments || s.textures)) return song;
   const positions = new Map();
@@ -70,7 +75,7 @@ function applySounds(song, design = 'classic', options = {}) {
     const values = { ...section, color, instruments, textures: section.textures ?? (options.solo ? [] : auto.textures ?? []) };
     const sound = readSectionSounds(values, `Section ${i + 1}`);
     for (const inst of Object.values(sound.instruments)) {
-      if (isCustom(inst) && !Object.hasOwn(song.patches ?? {}, inst)) throw new Error(`Son personnel absent : ${inst}. Fournis son patch_path.`);
+      if (isCustom(inst) && !Object.hasOwn(song.patches ?? {}, inst)) throw new Error(ui(`Son personnel absent : ${inst}. Fournis son patch_path.`, `Custom sound not found: ${inst}. Supply its patch_path.`));
     }
     const parts = [...new Set([...section.parts, ...(sound.textures?.length ? ['texture'] : [])])];
     const final = { ...section, ...sound, parts };

@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { renderSong } = require('./dsp');
 const { localRms } = require('./music-analysis');
 const { musicClock } = require('./music-clock');
@@ -38,7 +40,7 @@ function measurePupitres(song, section, clock) {
 }
 
 function mixSong(song, { strength = 0.8, sectionIndex } = {}) {
-  if (!Number.isFinite(strength) || strength < 0 || strength > 1) throw new Error('mix_strength attend un nombre entre 0 et 1.');
+  if (!Number.isFinite(strength) || strength < 0 || strength > 1) throw new Error(ui('mix_strength attend un nombre entre 0 et 1.', 'mix_strength must be a number between 0 and 1.'));
   if (!strength) return { song, sections: [] };
   const sections = song.meta.sections;
   const selected = sections.map((section, index) => ({ ...sectionRange(section), section, index }))

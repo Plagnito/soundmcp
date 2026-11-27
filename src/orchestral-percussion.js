@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { chordFromSymbol, parseKey, midiToFreq } = require('./theory');
 const { hash32 } = require('./rng');
 
@@ -10,7 +12,7 @@ const TUNED_PERCUSSION = ['timpani', 'timpani-roll'];
 
 function readOrchestralPercussion(value) {
   if (value !== undefined && !ORCHESTRAL_PERCUSSION.includes(value)) {
-    throw new Error('orchestral_percussion attend none, march ou drive.');
+    throw new Error(ui('orchestral_percussion attend none, march ou drive.', 'orchestral_percussion must be none, march, or drive.'));
   }
   return value;
 }

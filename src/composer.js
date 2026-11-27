@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 /**
  * Compositeur procédural : transforme un style + paramètres en un « song »
  * (liste d'événements musicaux) prêt à être rendu par dsp.js.
@@ -47,7 +49,7 @@ function createSong(params) {
   const percussion = readOrchestralPercussion(params.orchestral_percussion);
   const styleId = params.style;
   const style = STYLES[styleId];
-  if (!Object.hasOwn(STYLES, styleId)) throw new Error(`Style inconnu: ${styleId}. Styles valides: ${Object.keys(STYLES).join(', ')}`);
+  if (!Object.hasOwn(STYLES, styleId)) throw new Error(ui(`Style inconnu: ${styleId}. Styles valides: ${Object.keys(STYLES).join(', ')}`, `Unknown style: ${styleId}. Valid styles: ${Object.keys(STYLES).join(', ')}`));
 
   const seed = params.seed === undefined ? randomSeed() : params.seed >>> 0;
   const rng = makeRng(seed);
@@ -56,8 +58,8 @@ function createSong(params) {
     ? { ...style.melody, octave: Math.min(4, style.melody.octave) }
     : style.melody;
 
-  if (params.tempo !== undefined && !Number.isFinite(params.tempo)) throw new Error('Tempo invalide.');
-  if (params.duration_seconds !== undefined && !Number.isFinite(params.duration_seconds)) throw new Error('Durée invalide.');
+  if (params.tempo !== undefined && !Number.isFinite(params.tempo)) throw new Error(ui('Tempo invalide.', 'Invalid tempo.'));
+  if (params.duration_seconds !== undefined && !Number.isFinite(params.duration_seconds)) throw new Error(ui('Durée invalide.', 'Invalid duration.'));
   const bpm = clamp(Math.round(params.tempo ?? style.defaults.tempo), 40, 220);
   const durSec = clamp(params.duration_seconds ?? style.defaults.duration, 5, 600);
   const loop = params.loop !== undefined ? !!params.loop : !!style.defaults.loop;
@@ -66,7 +68,7 @@ function createSong(params) {
 
   // tonalité
   let key = parseKey(params.key);
-  if (params.key !== undefined && !key) throw new Error(`Tonalité invalide : ${params.key}.`);
+  if (params.key !== undefined && !key) throw new Error(ui(`Tonalité invalide : ${params.key}.`, `Invalid key: ${params.key}.`));
   if (!key) {
     const rootPc = parseNote(rng.pick(style.defaults.rootPool)) ?? rng.int(0, 11);
     const scaleId = rng.pick(style.defaults.scalePool);
@@ -84,7 +86,7 @@ function createSong(params) {
   const totalBeats = bars * 4;
   const clock = musicClock({ bars, totalBeats, bpm, meta: { sections: sections.map((section, index) => ({ ...section,
     startBar: 1 + sections.slice(0, index).reduce((sum, previous) => sum + previous.bars, 0) })) } });
-  if (clock.seconds > 600 + 1e-8) throw new Error('La durée des sections dépasse 600 secondes.');
+  if (clock.seconds > 600 + 1e-8) throw new Error(ui('La durée des sections dépasse 600 secondes.', 'Section durations exceed 600 seconds.'));
 
   /* ------- événements ------- */
   const events = [];
@@ -330,7 +332,7 @@ function createSong(params) {
     meta,
     endFade: !loop ? 1.4 : 0,
   }, params.sound_design));
-  if (!song.events.length) throw new Error('L’arrangement ne produit aucune note avec ce style.');
+  if (!song.events.length) throw new Error(ui('L’arrangement ne produit aucune note avec ce style.', 'The arrangement produces no notes in this style.'));
   return song;
 }
 

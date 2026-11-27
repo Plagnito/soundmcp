@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const fs = require('node:fs');
 const { createHash } = require('node:crypto');
 const { makeRng } = require('./rng');
@@ -14,21 +16,21 @@ const isCustom = (id) => typeof id === 'string' && /^custom-[a-z0-9][a-z0-9-]{0,
 
 function object(value, label, keys, optional = false) {
   if (value === undefined && optional) return {};
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} attend un objet.`);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(ui(`${label} attend un objet.`, `${label} must be an object.`));
   const unknown = Object.keys(value).find((key) => !keys.includes(key));
-  if (unknown) throw new Error(`${label}.${unknown} est inconnu.`);
+  if (unknown) throw new Error(ui(`${label}.${unknown} est inconnu.`, `Unknown field ${label}.${unknown}.`));
   return value;
 }
 
 function bounded(value, base, min, max, label) {
   if (value === undefined) return base;
-  if (!Number.isFinite(value) || value < min || value > max) throw new Error(`${label} attend un nombre entre ${min} et ${max}.`);
+  if (!Number.isFinite(value) || value < min || value > max) throw new Error(ui(`${label} attend un nombre entre ${min} et ${max}.`, `${label} must be a number between ${min} and ${max}.`));
   return value;
 }
 
 function choice(value, base, names, label) {
   if (value === undefined) return base;
-  if (!names.includes(value)) throw new Error(`${label} attend ${names.join(', ')}.`);
+  if (!names.includes(value)) throw new Error(ui(`${label} attend ${names.join(', ')}.`, `${label} must be one of ${names.join(', ')}.`));
   return value;
 }
 
@@ -44,18 +46,18 @@ function normalizeModal(value) {
   const label = 'patch.modal';
   const modal = object(value, label, ['modes', 'contact', 'damping', 'friction']);
   if (!Array.isArray(modal.modes) || modal.modes.length < 1 || modal.modes.length > 12) {
-    throw new Error('patch.modal.modes attend 1 à 12 résonances.');
+    throw new Error(ui('patch.modal.modes attend 1 à 12 résonances.', 'patch.modal.modes requires 1 to 12 resonances.'));
   }
   const modes = modal.modes.map((entry, i) => {
     const at = `${label}.modes[${i}]`;
     const mode = object(entry, at, ['ratio', 'gain', 'decay_seconds', 'position_node', 'pan']);
     const node = bounded(mode.position_node, 1, 1, 12, `${at}.position_node`);
-    if (!Number.isInteger(node)) throw new Error(`${at}.position_node attend un entier.`);
+    if (!Number.isInteger(node)) throw new Error(ui(`${at}.position_node attend un entier.`, `${at}.position_node must be an integer.`));
     return { ratio: bounded(mode.ratio, 1, 0.25, 32, `${at}.ratio`), gain: bounded(mode.gain, 0.6, 0, 1, `${at}.gain`),
       decay_seconds: bounded(mode.decay_seconds, 2.2, 0.025, 8, `${at}.decay_seconds`), position_node: node,
       pan: bounded(mode.pan, 0, -0.7, 0.7, `${at}.pan`) };
   });
-  if (!modes.some(({ gain }) => gain > 0)) throw new Error('Au moins une résonance doit avoir du gain.');
+  if (!modes.some(({ gain }) => gain > 0)) throw new Error(ui('Au moins une résonance doit avoir du gain.', 'At least one resonance must have positive gain.'));
   const normalized = { modes, contact: bounded(modal.contact, 0.15, 0, 0.7, `${label}.contact`),
     damping: bounded(modal.damping, 0, 0, 1, `${label}.damping`) };
   if (modal.friction !== undefined) {
@@ -90,7 +92,8 @@ function normalizeWaveguide(value) {
 }
 
 const supportsGesture = (patch) => Boolean(patch?.modal || patch?.waveguide);
-const GESTURE_PATCH_ERROR = 'gesture attend un instrument créé avec patch.modal ou patch.waveguide.';
+const GESTURE_PATCH_ERROR = ui('gesture attend un instrument créé avec patch.modal ou patch.waveguide.',
+  'gesture requires an instrument created with patch.modal or patch.waveguide.');
 
 function normalizeGesture(value) {
   if (value === undefined) return undefined;
@@ -110,7 +113,7 @@ function normalizePatch(value) {
     object(raw, 'patch', ['waveguide']);
     return { waveguide: normalizeWaveguide(raw.waveguide) };
   }
-  if (!Array.isArray(raw.layers) || raw.layers.length < 1 || raw.layers.length > 8) throw new Error('patch.layers attend 1 à 8 sources.');
+  if (!Array.isArray(raw.layers) || raw.layers.length < 1 || raw.layers.length > 8) throw new Error(ui('patch.layers attend 1 à 8 sources.', 'patch.layers requires 1 to 8 sources.'));
   const layers = raw.layers.map((entry, i) => {
     const label = `layers[${i}]`;
     const layer = object(entry, label, ['wave', 'gain', 'ratio', 'detune_cents', 'pan', 'pulse_width', 'envelope', 'pitch_drop', 'fm']);
@@ -123,12 +126,12 @@ function normalizePatch(value) {
       pitch_drop: { cents: bounded(drop.cents, 0, -3200, 3200, `${label}.pitch_drop.cents`), seconds: bounded(drop.seconds, 0.1, 0.004, 4, `${label}.pitch_drop.seconds`) },
       fm: { ratio: bounded(fm.ratio, 2, 0.125, 16, `${label}.fm.ratio`), index: bounded(fm.index, 0, 0, 7, `${label}.fm.index`) } };
   });
-  if (!layers.some((layer) => layer.gain > 0)) throw new Error('Au moins une source doit avoir du gain.');
+  if (!layers.some((layer) => layer.gain > 0)) throw new Error(ui('Au moins une source doit avoir du gain.', 'At least one source must have positive gain.'));
   const f = object(raw.filter, 'filter', ['type', 'frequency', 'q', 'envelope_octaves'], true);
   const filter = { type: choice(f.type, 'lowpass', FILTERS, 'filter.type'), frequency: bounded(f.frequency, 12000, 30, 18000, 'filter.frequency'),
     q: bounded(f.q, 0.707, 0.2, 10, 'filter.q'), envelope_octaves: bounded(f.envelope_octaves, 0, -5, 5, 'filter.envelope_octaves') };
   const rawLfos = raw.lfos ?? [];
-  if (!Array.isArray(rawLfos) || rawLfos.length > 5) throw new Error('lfos attend jusqu’à cinq modulations.');
+  if (!Array.isArray(rawLfos) || rawLfos.length > 5) throw new Error(ui('lfos attend jusqu’à cinq modulations.', 'lfos allows up to five modulations.'));
   const lfos = rawLfos.map((entry) => {
     const lfo = object(entry, 'lfo', ['target', 'rate', 'depth', 'wave']);
     const target = choice(lfo.target, 'pitch', Object.keys(TARGETS), 'lfo.target');
@@ -138,7 +141,7 @@ function normalizePatch(value) {
   const effect = object(raw.effects, 'effects', ['drive', 'chorus', 'bits', 'delay'], true);
   const delay = object(effect.delay, 'effects.delay', ['time_ms', 'feedback', 'mix'], true);
   const bits = bounded(effect.bits, 16, 4, 16, 'effects.bits');
-  if (!Number.isInteger(bits)) throw new Error('effects.bits attend un entier.');
+  if (!Number.isInteger(bits)) throw new Error(ui('effects.bits attend un entier.', 'effects.bits must be an integer.'));
   const effects = { drive: bounded(effect.drive, 0, 0, 1, 'effects.drive'), chorus: bounded(effect.chorus, 0, 0, 0.8, 'effects.chorus'), bits,
     delay: { time_ms: bounded(delay.time_ms, 260, 20, 750, 'effects.delay.time_ms'), feedback: bounded(delay.feedback, 0.28, 0, 0.72, 'effects.delay.feedback'),
       mix: bounded(delay.mix, 0, 0, 0.66, 'effects.delay.mix') } };
@@ -146,7 +149,7 @@ function normalizePatch(value) {
 }
 
 function createPatch(label, patch) {
-  if (typeof label !== 'string' || !label.trim() || label.length > 80) throw new Error('Le nom du son doit faire entre 1 et 80 caractères.');
+  if (typeof label !== 'string' || !label.trim() || label.length > 80) throw new Error(ui('Le nom du son doit faire entre 1 et 80 caractères.', 'The sound name must contain 1 to 80 characters.'));
   const clean = label.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32) || 'son';
   const normalized = normalizePatch(patch);
   const hash = createHash('sha256').update(JSON.stringify(normalized)).digest('hex').slice(0, 10);
@@ -154,7 +157,7 @@ function createPatch(label, patch) {
 }
 
 function patchFromBrief(brief, seed) {
-  if (typeof brief !== 'string' || !brief.trim() || brief.length > 1000) throw new Error('brief attend 1 à 1000 caractères.');
+  if (typeof brief !== 'string' || !brief.trim() || brief.length > 1000) throw new Error(ui('brief attend 1 à 1000 caractères.', 'brief must contain 1 to 1000 characters.'));
   const t = brief.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const rng = makeRng(seed);
   if (/\b(frottement continu|metal frotte|continuous friction|sustained scrape)\b/.test(t)) {
@@ -216,25 +219,25 @@ function patchFromBrief(brief, seed) {
 
 function validatePatches(patches) {
   if (patches === undefined) return {};
-  if (!patches || typeof patches !== 'object' || Array.isArray(patches) || Object.keys(patches).length > 16) throw new Error('Jusqu’à 16 sons personnels par projet.');
+  if (!patches || typeof patches !== 'object' || Array.isArray(patches) || Object.keys(patches).length > 16) throw new Error(ui('Jusqu’à 16 sons personnels par projet.', 'A project can use up to 16 custom sounds.'));
   return Object.fromEntries(Object.entries(patches).map(([id, patch]) => {
-    if (!isCustom(id)) throw new Error(`Identifiant de son personnel invalide : ${id}.`);
+    if (!isCustom(id)) throw new Error(ui(`Identifiant de son personnel invalide : ${id}.`, `Invalid custom sound ID: ${id}.`));
     return [id, normalizePatch(patch)];
   }));
 }
 
 function readPatch(file) {
-  if (typeof file !== 'string' || !file.trim()) throw new Error('Indique un chemin de patch SoundMCP.');
-  if (fs.statSync(file).size > 128 * 1024) throw new Error('Fichier de son personnel trop volumineux.');
+  if (typeof file !== 'string' || !file.trim()) throw new Error(ui('Indique un chemin de patch SoundMCP.', 'Supply a SoundMCP patch path.'));
+  if (fs.statSync(file).size > 128 * 1024) throw new Error(ui('Fichier de son personnel trop volumineux.', 'Custom sound file is too large.'));
   const data = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
-  if (data?.type !== 'soundmcp-patch' || data.version !== 1) throw new Error('Fichier son personnel SoundMCP attendu.');
+  if (data?.type !== 'soundmcp-patch' || data.version !== 1) throw new Error(ui('Fichier son personnel SoundMCP attendu.', 'Expected a SoundMCP custom sound file.'));
   return createPatch(data.label, data.patch);
 }
 
 function importPatches(paths, previous) {
   const imported = validatePatches(previous);
   if (paths === undefined) return imported;
-  if (!Array.isArray(paths) || paths.length > 16 || paths.some((p) => typeof p !== 'string' || !p.trim())) throw new Error('patch_paths attend jusqu’à 16 chemins.');
+  if (!Array.isArray(paths) || paths.length > 16 || paths.some((p) => typeof p !== 'string' || !p.trim())) throw new Error(ui('patch_paths attend jusqu’à 16 chemins.', 'patch_paths allows up to 16 paths.'));
   for (const file of paths) {
     const normalized = readPatch(file);
     imported[normalized.id] = normalized.patch;
@@ -246,10 +249,10 @@ function assignPatchRoles(song, roles, patches) {
   if (roles === undefined) return Object.keys(patches).length ? { ...song, patches } : song;
   const mapping = object(roles, 'patch_roles', PATCH_ROLES);
   for (const version of Object.values(mapping)) {
-    if (!isCustom(version) || !Object.hasOwn(patches, version)) throw new Error(`Son personnel absent : ${version}. Fournis son patch_path.`);
+    if (!isCustom(version) || !Object.hasOwn(patches, version)) throw new Error(ui(`Son personnel absent : ${version}. Fournis son patch_path.`, `Custom sound not found: ${version}. Supply its patch_path.`));
   }
   for (const role of Object.keys(mapping)) {
-    if (!song.events.some((event) => event.bus === role && event.inst !== 'sub')) throw new Error(`Aucune note dans le pupitre ${role}.`);
+    if (!song.events.some((event) => event.bus === role && event.inst !== 'sub')) throw new Error(ui(`Aucune note dans le pupitre ${role}.`, `No notes found in part ${role}.`));
   }
   const events = song.events.map((e) => mapping[e.bus] && e.inst !== 'sub' ? { ...e, inst: mapping[e.bus] } : e);
   const sections = song.meta.sections.map((section) => ({ ...section, instruments: {

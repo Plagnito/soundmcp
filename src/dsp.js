@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 /**
  * Moteur DSP : synthèse des instruments, effets (réverbération type freeverb,
  * délai ping-pong), chaîne master et export WAV 16 bits stéréo.
@@ -665,7 +667,7 @@ function renderEventsInto(evs, L, R, sr, spb, palette = 'synth', clock, bankVers
     const { event: ev, start, duration: durSec } = note;
     if (isCustom(ev.inst)) {
       const patch = patches?.[ev.inst];
-      if (!patch) throw new Error(`Son personnel absent du projet : ${ev.inst}.`);
+      if (!patch) throw new Error(ui(`Son personnel absent du projet : ${ev.inst}.`, `Custom sound missing from the project: ${ev.inst}.`));
       if (supportsGesture(patch)) ordered.push({ ...note, patch });
       else {
         renderCustom(L, R, start, ev, sr, durSec, patch);
@@ -681,7 +683,7 @@ function renderEventsInto(evs, L, R, sr, spb, palette = 'synth', clock, bankVers
       drumEvent(L, R, start, len, ev, sr, ev.drum);
     } else {
       const inst = INSTRUMENTS[ev.inst];
-      if (!inst) throw new Error(`Instrument inconnu : ${ev.inst}.`);
+      if (!inst) throw new Error(ui(`Instrument inconnu : ${ev.inst}.`, `Unknown instrument: ${ev.inst}.`));
       const len = Math.min(Math.round((durSec + inst.release) * sr) + 64, totalSamples - start);
       const gain = (ev.gain ?? 1) * inst.gain;
       inst.fn(L, R, start, len, ev, sr, durSec, gain);
@@ -947,7 +949,7 @@ function measureAudio({ L, R, samples }) {
 /* ---------------------------------- WAV ---------------------------------- */
 
 function wavEncoding(L, R, sr, mono, bits) {
-  if (![16, 24, 32].includes(bits)) throw new Error(`Profondeur WAV invalide : ${bits}.`);
+  if (![16, 24, 32].includes(bits)) throw new Error(ui(`Profondeur WAV invalide : ${bits}.`, `Invalid WAV bit depth: ${bits}.`));
   const float = bits === 32;
   const channels = mono ? 1 : 2;
   const n = mono ? L.length : Math.min(L.length, R.length);

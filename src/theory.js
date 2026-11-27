@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 /**
  * Théorie musicale : gammes, tonalités, accords.
  * Tout est en degrés d'échelle (0 = tonique) pour rester consonant
@@ -155,14 +157,14 @@ const CHORD_INTERVALS = {
 function chordFromSymbol(symbol) {
   const normalized = symbol.trim().replace(/♯/g, '#').replace(/♭/g, 'b');
   const match = /^([A-Ga-g][#b]?)([^/]*)(?:\/([A-Ga-g][#b]?))?$/.exec(normalized);
-  if (!match) throw new Error(`Accord invalide : ${symbol}.`);
+  if (!match) throw new Error(ui(`Accord invalide : ${symbol}.`, `Invalid chord: ${symbol}.`));
   const aliases = { M7: 'maj7', M9: 'maj9', 'Δ7': 'maj7', 'Δ9': 'maj9', min: 'm', min7: 'm7', min9: 'm9',
     mmaj7: 'mMaj7', dimmaj7: 'dimMaj7', 'º': 'dim', '°': 'dim', '°7': 'dim7', 'ø7': 'm7b5', '+': 'aug', sus: 'sus4' };
   const [, root, type, bass] = match;
   const extraNinth = type.endsWith('add9');
   const baseType = extraNinth ? type.slice(0, -4) : type;
   const suffix = Object.hasOwn(aliases, baseType) ? aliases[baseType] : baseType;
-  if (!Object.hasOwn(CHORD_INTERVALS, suffix)) throw new Error(`Accord non reconnu : ${symbol}.`);
+  if (!Object.hasOwn(CHORD_INTERVALS, suffix)) throw new Error(ui(`Accord non reconnu : ${symbol}.`, `Unrecognized chord: ${symbol}.`));
   const rootPc = parseNote(root);
   const intervals = CHORD_INTERVALS[suffix];
   const notes = (extraNinth ? [...new Set([...intervals, 14])] : intervals).map((interval) => 48 + rootPc + interval);

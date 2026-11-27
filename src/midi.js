@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { performEvents } = require('./performance');
 
 /**
@@ -140,14 +142,14 @@ function renderMidiBuffer(song, title = 'SoundMCP') {
     if (bus === 'texture') {
       if (!events.length) continue;
       if (channel === 9) channel++;
-      if (channel > 15) throw new Error('Le MIDI accepte au plus 15 pistes instrumentales avec programmes distincts.');
+      if (channel > 15) throw new Error(ui('Le MIDI accepte au plus 15 pistes instrumentales avec programmes distincts.', 'MIDI supports up to 15 instrument tracks with distinct programs.'));
       tracks.push(noteTrack(events, { channel: channel++, program: GM_PROGRAMS.timpani, name: label, endTick, clock }));
       continue;
     }
     for (const inst of new Set(events.map((event) => event.inst))) {
       const part = events.filter((event) => event.inst === inst);
       if (channel === 9) channel++;
-      if (channel > 15) throw new Error('Le MIDI accepte au plus 15 pistes instrumentales avec programmes distincts.');
+      if (channel > 15) throw new Error(ui('Le MIDI accepte au plus 15 pistes instrumentales avec programmes distincts.', 'MIDI supports up to 15 instrument tracks with distinct programs.'));
       tracks.push(noteTrack(part, { channel: channel++, program: isCustom(inst) ? customPrograms[bus] : GM_PROGRAMS[inst] ?? 0,
         name: `${label} — ${inst}`, endTick, clock }));
     }

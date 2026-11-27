@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 /**
  * CLI de SoundMCP (indépendant du protocole MCP).
  *
@@ -15,75 +17,102 @@ const { readFileSync } = require('node:fs');
 const { callTool } = require('./tools');
 
 const USAGE = [
-  'SoundMCP — composition musicale pour IA (zéro dépendance)',
+  ui('SoundMCP — composition musicale pour IA (zéro dépendance)', 'SoundMCP — music composition for AI (zero dependencies)'),
   '',
-  'Commandes :',
-  '  list                                   Liste les styles, les ambiances et les effets sonores.',
-  '  music <style> [options]                Compose une piste.',
-  '  edit <projet.soundmcp.json> [options]  Reprend une partition enregistrée.',
-  '  draft "brief" [options]                Crée trois esquisses instrumentales.',
-  '  sounds                                 Liste les timbres et les couleurs de mix.',
-  '  sound-preview <sons séparés par virgules>   Joue le nuancier sonore.',
-  '  design-sound "description" [options]  Invente un son avec réglages réutilisables.',
-  '  finish <projet.soundmcp.json> [options] Rend le master et les livrables.',
-  '  preview <projet> [projet B] [projet C] Préécoute à niveau égal.',
-  '  analyze <projet ou WAV>                Mesures et historique.',
-  '  sfx <kind> [options]                   Crée un effet sonore.',
-  '  ambience <kind> [options]              Crée une ambiance en boucle parfaite.',
-  '  help                                   Cette aide.',
+  ui('Commandes :', 'Commands'),
+  ui(
+    '  list                                   Liste les styles, les ambiances et les effets sonores.',
+    '  list                                 List music styles, ambiences, and sound effects.',
+  ),
+  ui('  music <style> [options]                Compose une piste.', '  music <style> [options]              Compose a track.'),
+  ui('  edit <projet.soundmcp.json> [options]  Reprend une partition enregistrée.', '  edit <project.soundmcp.json> [options]  Edit a saved score.'),
+  ui('  draft "brief" [options]                Crée trois esquisses instrumentales.', '  draft "brief" [options]              Create instrumental drafts.'),
+  ui('  sounds                                 Liste les timbres et les couleurs de mix.', '  sounds                               List sounds and mix colors.'),
+  ui('  sound-preview <sons séparés par virgules>   Joue le nuancier sonore.', '  sound-preview <comma-separated IDs> Play sounds from the catalog.'),
+  ui(
+    '  design-sound "description" [options]  Invente un son avec réglages réutilisables.',
+    '  design-sound "description" [options]  Create a sound with reusable settings.',
+  ),
+  ui('  finish <projet.soundmcp.json> [options] Rend le master et les livrables.', '  finish <project.soundmcp.json> [options]  Render a master and its deliverables.'),
+  ui('  preview <projet> [projet B] [projet C] Préécoute à niveau égal.', '  preview <project> [project B] [project C]  Preview at matched loudness.'),
+  ui('  analyze <projet ou WAV>                Mesures et historique.', '  analyze <project or WAV>             Show measurements and editing history.'),
+  ui('  sfx <kind> [options]                   Crée un effet sonore.', '  sfx <kind> [options]                 Create a sound effect.'),
+  ui('  ambience <kind> [options]              Crée une ambiance en boucle parfaite.', '  ambience <kind> [options]            Create a seamless ambience loop.'),
+  ui('  help                                   Cette aide.', '  help                                 Show this help.'),
   '',
-  'Options de music :',
-  '  --dur N         Durée en secondes (5-600, défaut : celle du style).',
-  '  --bpm N         Tempo (40-220, défaut : celui du style).',
-  '  --key "..."     Tonalité, ex. "A minor", "la mineur", "F# dorien".',
-  '  --seed N        Graine : même graine = même musique.',
-  '  --midi          Export MIDI au lieu du WAV.',
-  '  --both          Export WAV + MIDI.',
-  '  --loop / --no-loop  Force ou désactive la boucle sans raccord.',
-  '  --out dir       Dossier de sortie (défaut : output/).',
-  '  --title "..."   Titre (sert de nom de fichier).',
-  '  --sr N          Fréquence d\'échantillonnage : 22050, 44100 (défaut) ou 48000.',
-  '  --bits N        Master WAV en 16 bits (défaut) ou 24 bits.',
-  '  --stems         Pupitres séparés avant mastering, en WAV 32 bits flottant.',
-  '  --arrangement fichier.json  Charge les sections et le motif.',
-  '  --palette studio|synth Choisit les enregistrements instrumentaux ou la synthèse.',
-  '  --project       Enregistre la partition pour edit.',
-  '  --editions loop,calm,intense  Exporte les boucles alignées.',
-  '  --loop-region début:mesures   Indique la première mesure et le nombre de mesures.',
-  '  --mono          Exporte en mono (taille moitié).',
-  '  --json          Affiche les métadonnées en JSON.',
+  ui('Options de music :', 'Music options'),
+  ui('  --dur N         Durée en secondes (5-600, défaut : celle du style).', '  --dur N         Duration in seconds (5–600, defaults to the style).'),
+  ui('  --bpm N         Tempo (40-220, défaut : celui du style).', '  --bpm N         Tempo (40–220, defaults to the style).'),
+  ui('  --key "..."     Tonalité, ex. "A minor", "la mineur", "F# dorien".', '  --key "..."     Key, for example "A minor", "F# dorian", or "la mineur".'),
+  ui('  --seed N        Graine : même graine = même musique.', '  --seed N        Reuse a seed to reproduce the music.'),
+  ui('  --midi          Export MIDI au lieu du WAV.', '  --midi          Export MIDI instead of WAV.'),
+  ui('  --both          Export WAV + MIDI.', '  --both          Export WAV and MIDI.'),
+  ui('  --loop / --no-loop  Force ou désactive la boucle sans raccord.', '  --loop / --no-loop  Enable or disable seamless looping.'),
+  ui('  --out dir       Dossier de sortie (défaut : output/).', '  --out dir       Output directory (default: output/).'),
+  ui('  --title "..."   Titre (sert de nom de fichier).', '  --title "..."   Title used for the filename.'),
+  ui('  --sr N          Fréquence d\'échantillonnage : 22050, 44100 (défaut) ou 48000.', '  --sr N          Sample rate: 22050, 44100 (default), or 48000.'),
+  ui('  --bits N        Master WAV en 16 bits (défaut) ou 24 bits.', '  --bits N        WAV master bit depth: 16 (default) or 24.'),
+  ui('  --stems         Pupitres séparés avant mastering, en WAV 32 bits flottant.', '  --stems         Export separate pre-master stems as 32-bit float WAV.'),
+  ui('  --arrangement fichier.json  Charge les sections et le motif.', '  --arrangement file.json  Load sections and a motif.'),
+  ui('  --palette studio|synth Choisit les enregistrements instrumentaux ou la synthèse.', '  --palette studio|synth  Choose instrument recordings or synthesis.'),
+  ui('  --project       Enregistre la partition pour edit.', '  --project       Save the score for editing.'),
+  ui('  --editions loop,calm,intense  Exporte les boucles alignées.', '  --editions loop,calm,intense  Export aligned loops.'),
+  ui('  --loop-region début:mesures   Indique la première mesure et le nombre de mesures.', '  --loop-region start:bars  Choose the first bar and number of bars.'),
+  ui('  --mono          Exporte en mono (taille moitié).', '  --mono          Export mono at half the size.'),
+  ui('  --json          Affiche les métadonnées en JSON.', '  --json          Print JSON metadata.'),
   '',
-  'Options de edit :',
-  '  --edits fichier.json  Charge le tableau de retouches.',
-  '  --ending-variants N   Génère 1 à 5 fins.',
-  '  Les options WAV, MIDI et éditions sont également disponibles.',
-  '  draft : --dur N, --seed N, --variants N, --title, --out, --json.',
-  '  draft : --midi-motif fichier.mid [--midi-track N] [--midi-channel N] [--midi-start N] [--midi-bars N].',
-  '  draft et music : --sound-design classic|evolving.',
-  '  draft et music : --orchestral-percussion march|drive|none.',
-  '  design-sound : --definition fichier.json, --note C4, --dur N, --gate N.',
-  '  Import : --patch fichier.soundmcp-patch.json et --patch-role pupitre:identifiant.',
-  '  finish : --cuts 15,30,60, --editions loop,calm,intense,transition, --no-stems.',
-  '  finish : --adaptive début:mesures [--adaptive-fade ms] exporte intro, boucle, sortie et manifeste.',
-  '  preview : --blind, --section nom, --loop-region début:mesures, --dur N.',
+  ui('Options de edit :', 'Edit options'),
+  ui('  --edits fichier.json  Charge le tableau de retouches.', '  --edits file.json  Load the array of edits.'),
+  ui('  --ending-variants N   Génère 1 à 5 fins.', '  --ending-variants N  Generate 1 to 5 endings.'),
+  ui('  Les options WAV, MIDI et éditions sont également disponibles.', '  WAV, MIDI, and edition options are also available.'),
+  ui('  draft : --dur N, --seed N, --variants N, --title, --out, --json.', '  draft: --dur N, --seed N, --variants N, --title, --out, --json.'),
+  ui(
+    '  draft : --midi-motif fichier.mid [--midi-track N] [--midi-channel N] [--midi-start N] [--midi-bars N].',
+    '  draft: --midi-motif file.mid [--midi-track N] [--midi-channel N] [--midi-start N] [--midi-bars N].',
+  ),
+  ui('  draft et music : --sound-design classic|evolving.', '  draft and music: --sound-design classic|evolving.'),
+  ui('  draft et music : --orchestral-percussion march|drive|none.', '  draft and music: --orchestral-percussion march|drive|none.'),
+  ui('  design-sound : --definition fichier.json, --note C4, --dur N, --gate N.', '  design-sound: --definition file.json, --note C4, --dur N, --gate N.'),
+  ui('  Import : --patch fichier.soundmcp-patch.json et --patch-role pupitre:identifiant.', '  Import: --patch file.soundmcp-patch.json and --patch-role part:id.'),
+  ui(
+    '  finish : --cuts 15,30,60, --editions loop,calm,intense,transition, --no-stems.',
+    '  finish: --cuts 15,30,60, --editions loop,calm,intense,transition, --no-stems.',
+  ),
+  ui(
+    '  finish : --adaptive début:mesures [--adaptive-fade ms] exporte intro, boucle, sortie et manifeste.',
+    '  finish: --adaptive start:bars [--adaptive-fade ms] exports intro, loop, outro, and a manifest.',
+  ),
+  ui('  preview : --blind, --section nom, --loop-region début:mesures, --dur N.', '  preview: --blind, --section name, --loop-region start:bars, --dur N.'),
   '',
-  'Options de sfx :',
-  '  --seed N        Graine (variantes reproductibles).',
-  '  --vol N         Volume 0.05-1 (défaut 1).',
-  '  --source ID [--source-out dir]  Reprend un effet enregistré à la place de kind.',
-  '  --variants N [--pitch-spread N] [--attack-spread ms]  Génère une famille de 2 à 12 prises.',
-  '  --pitch N et --attack ms règlent la hauteur et le fondu d’attaque.',
-  '  --out dir       Dossier de sortie.',
+  ui('Options de sfx :', 'SFX options'),
+  ui('  --seed N        Graine (variantes reproductibles).', '  --seed N        Seed for reproducible variants.'),
+  ui('  --vol N         Volume 0.05-1 (défaut 1).', '  --vol N         Relative volume from 0.05 to 1 (default: 1).'),
+  ui(
+    '  --source ID [--source-out dir]  Reprend un effet enregistré à la place de kind.',
+    '  --source ID [--source-out dir]  Reuse a saved sound effect in place of kind.',
+  ),
+  ui(
+    '  --variants N [--pitch-spread N] [--attack-spread ms]  Génère une famille de 2 à 12 prises.',
+    '  --variants N [--pitch-spread N] [--attack-spread ms]  Generate 2 to 12 takes.',
+  ),
+  ui('  --pitch N et --attack ms règlent la hauteur et le fondu d’attaque.', '  --pitch N and --attack ms set pitch and the attack fade.'),
+  ui('  --out dir       Dossier de sortie.', '  --out dir       Output directory.'),
   '',
-  'Options de ambience :',
-  '  --dur N         Durée de la boucle en secondes (5-600, défaut : 45-60 selon l\'ambiance).',
-  '  --seed N        Graine : même graine = même ambiance.',
-  '  --vol N         Volume 0.05-1 (défaut 1).',
-  '  --out dir       Dossier de sortie.',
+  ui('Options de ambience :', 'Ambience options'),
+  ui(
+    '  --dur N         Durée de la boucle en secondes (5-600, défaut : 45-60 selon l\'ambiance).',
+    '  --dur N         Loop duration in seconds (5–600, default: 45–60 depending on the ambience).',
+  ),
+  ui('  --seed N        Graine : même graine = même ambiance.', '  --seed N        Reuse a seed to reproduce the ambience.'),
+  ui('  --vol N         Volume 0.05-1 (défaut 1).', '  --vol N         Relative volume from 0.05 to 1 (default: 1).'),
+  ui('  --out dir       Dossier de sortie.', '  --out dir       Output directory.'),
   '',
-  'Exemples :',
+  ui('Exemples :', 'Examples'),
   '  node src/cli.js music lofi --dur 24 --seed 7',
-  '  node src/cli.js music epic --dur 90 --key "D mineur" --loop --both --title "Boss 1"',
+  ui(
+    '  node src/cli.js music epic --dur 90 --key "D mineur" --loop --both --title "Boss 1"',
+    '  node src/cli.js music epic --dur 90 --key "D minor" --loop --both --title "Boss 1"',
+  ),
   '  node src/cli.js sfx coin --seed 3',
   '  node src/cli.js ambience rain --dur 60 --sr 22050',
 ].join('\n');
@@ -96,19 +125,19 @@ function parseArgs(argv) {
     const key = a.slice(2);
     const num = (name) => {
       const v = argv[i + 1];
-      if (v === undefined || v.startsWith('--')) throw new Error(`Option --${name} attend une valeur.`);
+      if (v === undefined || v.startsWith('--')) throw new Error(ui(`Option --${name} attend une valeur.`, `Option --${name} requires a value.`));
       i++;
       return Number(v);
     };
     const str = (name) => {
       const v = argv[i + 1];
-      if (v === undefined || v.startsWith('--')) throw new Error(`Option --${name} attend une valeur.`);
+      if (v === undefined || v.startsWith('--')) throw new Error(ui(`Option --${name} attend une valeur.`, `Option --${name} requires a value.`));
       i++;
       return v;
     };
     const region = (name) => {
       const raw = str(name);
-      if (!/^\d+:\d+$/.test(raw)) throw new Error(`Option --${name} attend début:mesures.`);
+      if (!/^\d+:\d+$/.test(raw)) throw new Error(ui(`Option --${name} attend début:mesures.`, `Option --${name} expects start:bars.`));
       const [start_bar, bars] = raw.split(':').map(Number);
       return { start_bar, bars };
     };
@@ -151,7 +180,7 @@ function parseArgs(argv) {
       case 'patch': (args.patchPaths ??= []).push(str('patch')); break;
       case 'patch-role': {
         const mapping = str('patch-role').split(':');
-        if (mapping.length !== 2 || !mapping[0] || !mapping[1]) throw new Error('Option --patch-role attend pupitre:identifiant.');
+        if (mapping.length !== 2 || !mapping[0] || !mapping[1]) throw new Error(ui('Option --patch-role attend pupitre:identifiant.', 'Option --patch-role expects part:id.'));
         args.patchRoles = { ...args.patchRoles, [mapping[0]]: mapping[1] };
         break;
       }
@@ -172,7 +201,7 @@ function parseArgs(argv) {
       case 'no-loop': args.loop = false; break;
       case 'mono': args.mono = true; break;
       case 'json': args.json = true; break;
-      default: throw new Error(`Option inconnue: --${key}`);
+      default: throw new Error(ui(`Option inconnue: --${key}`, `Unknown option: --${key}`));
     }
   }
   return args;
@@ -219,7 +248,7 @@ async function main() {
   if (cmd === 'draft') {
     const selectors = { track: args.midiTrack, channel: args.midiChannel, start_bar: args.midiStart, bars: args.midiBars };
     if (!args.midiMotif && Object.values(selectors).some((value) => value !== undefined)) {
-      throw new Error('Indique --midi-motif pour choisir une piste, un canal ou une plage MIDI.');
+      throw new Error(ui('Indique --midi-motif pour choisir une piste, un canal ou une plage MIDI.', 'Use --midi-motif before selecting a MIDI track, channel, or region.'));
     }
     display(await callTool('draft_music', { brief: args._.join(' '), duration_seconds: args.dur, tempo: args.bpm,
       key: args.key, loop: args.loop, seed: args.seed, variants: args.variants, sound_design: args.soundDesign,
@@ -229,7 +258,7 @@ async function main() {
     return;
   }
   if (cmd === 'design-sound') {
-    if (args.definition && args._.length) throw new Error('Indique une description ou --definition.');
+    if (args.definition && args._.length) throw new Error(ui('Indique une description ou --definition.', 'Supply a description or --definition.'));
     const data = args.definition ? readJson(args.definition) : undefined;
     const patch = data?.type === 'soundmcp-patch' ? data.patch : data;
     display(await callTool('design_sound', { brief: args.definition ? undefined : args._.join(' '), patch,
@@ -246,7 +275,7 @@ async function main() {
     return;
   }
   if (cmd === 'finish') {
-    if (!args.adaptive && args.adaptiveFade !== undefined) throw new Error('Indique --adaptive pour régler son fondu.');
+    if (!args.adaptive && args.adaptiveFade !== undefined) throw new Error(ui('Indique --adaptive pour régler son fondu.', 'Use --adaptive before setting its crossfade.'));
     display(await callTool('finish_music', { ...musicOptions, project_path: args._[0], cuts: args.cuts,
       adaptive: args.adaptive ? { loop_region: args.adaptive, crossfade_ms: args.adaptiveFade } : undefined,
       format: args.both ? 'both' : args.midi ? 'midi' : args.wav ? 'wav' : undefined }));
@@ -273,8 +302,8 @@ async function main() {
   if (cmd === 'music') {
     const style = args._[0];
     if (!style) {
-      console.error('Usage : node src/cli.js music <style> [--dur N] [--seed N] ...');
-      console.error('Styles : lance `node src/cli.js list`.');
+      console.error(ui('Usage : ', 'Usage: ') + 'node src/cli.js music <style> [--dur N] [--seed N] ...');
+      console.error(ui('Styles : lance `node src/cli.js list`.', 'Run `node src/cli.js list` to see the styles.'));
       process.exitCode = 1;
       return;
     }
@@ -298,13 +327,14 @@ async function main() {
   if (cmd === 'sfx') {
     const kind = args._[0];
     if (!kind && !args.source) {
-      console.error('Usage : node src/cli.js sfx <kind> ou --source ID [--variants N]');
-      console.error('Kinds : lance `node src/cli.js list`.');
+      console.error(ui('Usage : node src/cli.js sfx <kind> ou --source ID [--variants N]',
+        'Usage: node src/cli.js sfx <kind> or --source ID [--variants N]'));
+      console.error(ui('Kinds : lance `node src/cli.js list`.', 'Run `node src/cli.js list` to see the available kinds.'));
       process.exitCode = 1;
       return;
     }
     if (args.variants === undefined && (args.pitchSpread !== undefined || args.attackSpread !== undefined)) {
-      throw new Error('Indique --variants pour régler les écarts entre les prises.');
+      throw new Error(ui('Indique --variants pour régler les écarts entre les prises.', 'Use --variants before setting the variation ranges.'));
     }
     display(await callTool('create_sfx', {
       kind, source_file_id: args.source, source_output_dir: args.sourceOut,
@@ -324,8 +354,8 @@ async function main() {
   if (cmd === 'ambience') {
     const kind = args._[0];
     if (!kind) {
-      console.error('Usage : node src/cli.js ambience <kind> [--dur N] [--seed N] [--vol N]');
-      console.error('Kinds : lance `node src/cli.js list`.');
+      console.error(ui('Usage : ', 'Usage: ') + 'node src/cli.js ambience <kind> [--dur N] [--seed N] [--vol N]');
+      console.error(ui('Kinds : lance `node src/cli.js list`.', 'Run `node src/cli.js list` to see the available kinds.'));
       process.exitCode = 1;
       return;
     }
@@ -343,7 +373,8 @@ async function main() {
     return;
   }
 
-  console.error(`Commande inconnue: ${cmd}. Lance \`node src/cli.js help\`.`);
+  console.error(ui(`Commande inconnue: ${cmd}. Lance \`node src/cli.js help\`.`,
+    `Unknown command: ${cmd}. Run \`node src/cli.js help\`.`));
   process.exitCode = 1;
 }
 

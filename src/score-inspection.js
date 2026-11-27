@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { PARTS } = require('./arrangement');
 const { COMMON_METER, musicClock } = require('./music-clock');
 const { performEvents } = require('./performance');
@@ -7,10 +9,10 @@ const { performEvents } = require('./performance');
 function inspectScore(song, { start_bar: start = 1, bars = Math.min(4, song.bars - start + 1), part, offset = 0, limit = 160 }) {
   if (!Number.isInteger(start) || start < 1 || start > song.bars || !Number.isInteger(bars) || bars < 1 ||
       bars > 12 || start + bars - 1 > song.bars || (part !== undefined && !PARTS.includes(part))) {
-    throw new Error('Indique une plage de 1 à 12 mesures existantes et, si nécessaire, un pupitre.');
+    throw new Error(ui('Indique une plage de 1 à 12 mesures existantes et, si nécessaire, un pupitre.', 'Provide a range of 1 to 12 existing bars and a part if needed.'));
   }
   if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 512) {
-    throw new Error('offset doit être positif ou nul, limit doit être entre 1 et 512.');
+    throw new Error(ui('offset doit être positif ou nul, limit doit être entre 1 et 512.', 'offset must be zero or greater, and limit must be between 1 and 512.'));
   }
   const clock = musicClock(song);
   const measures = Array.from({ length: bars }, (_, i) => {

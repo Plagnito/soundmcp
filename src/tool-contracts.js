@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { STATES: OUTPUT_STATES } = require('./output-library');
 
 const text = { type: 'string' };
@@ -13,10 +15,16 @@ const details = { type: 'object' };
 const array = (items) => ({ type: 'array', items });
 const object = (fields, optional = {}) => ({ type: 'object', properties: { ...fields, ...optional }, required: Object.keys(fields) });
 
-const wav = { ...path, description: 'Chemin du fichier WAV généré.' };
-const project = { ...path, description: 'Projet .soundmcp.json à transmettre à inspect_score, edit_music ou finish_music.' };
-const patch = { ...path, description: 'Patch réutilisable dans play_sound ou dans patch_paths lors d’un arrangement.' };
-const fileId = { ...text, description: 'Identifiant de la sortie dans son output_dir. Pour reprendre un effet ou une ambiance, donne cet identifiant comme source_file_id au même outil de création.' };
+const wav = { ...path, description: ui('Chemin du fichier WAV généré.', 'Path to the generated WAV file.') };
+const project = { ...path, description: ui(
+  'Projet .soundmcp.json à transmettre à inspect_score, edit_music ou finish_music.',
+  '.soundmcp.json project to pass to inspect_score, edit_music, or finish_music.',
+) };
+const patch = { ...path, description: ui('Patch réutilisable dans play_sound ou dans patch_paths lors d’un arrangement.', 'Reusable patch for play_sound or the arrangement\'s patch_paths.') };
+const fileId = { ...text, description: ui(
+  'Identifiant de la sortie dans son output_dir. Pour reprendre un effet ou une ambiance, donne cet identifiant comme source_file_id au même outil de création.',
+  'Output ID within its output_dir. To revise an effect or ambience, pass this ID as source_file_id to the same generation tool.',
+) };
 const file = object({ path, format: { type: 'string', enum: ['wav', 'midi', 'project', 'json'] }, bytes: integer });
 const take = object({ label: text, path: wav, integratedLufs: numericOrNull }, { project_path: project });
 const variantSound = object({ id: text, label: text, patch_path: patch, preview_path: wav });
@@ -26,7 +34,7 @@ const waveStats = object({ durationSeconds: number, integratedLufs: numericOrNul
 const renderSettings = { kind: text, seed: integer, volume: number, sampling_rate: integer, mono: bool };
 const generatedWave = { path: wav, kind: text, seed: integer, durationSeconds: number, bytes: integer };
 const sfxControls = { pitch_semitones: number, attack_ms: number };
-const adaptiveSegment = object({ file: { ...text, description: 'Nom du WAV, relatif au dossier du manifeste.' },
+const adaptiveSegment = object({ file: { ...text, description: ui('Nom du WAV, relatif au dossier du manifeste.', 'WAV filename relative to the manifest directory.') },
   start_sample: integer, end_sample_exclusive: integer, frames: integer });
 const adaptivePack = object({ manifest_path: path, type: { const: 'soundmcp-adaptive' }, version: { const: 1 },
   sample_rate: integer, channels: { enum: [1, 2] }, bit_depth: { enum: [16, 24] }, total_frames: integer, crossfade_frames: integer,
@@ -35,16 +43,19 @@ const adaptivePack = object({ manifest_path: path, type: { const: 'soundmcp-adap
 const managedOutputs = object({ output_dir: path, files: array(object({ file_id: fileId, path })) });
 const asset = object({
   file_id: fileId,
-  path: { ...path, description: 'Chemin d’origine. Pour un projet actif, réutilise-le comme project_path.' },
-  state: { type: 'string', enum: OUTPUT_STATES, description: 'Emplacement actuel du fichier, au chemin d’origine ou dans l’archive.' },
-}, { archive_path: { ...path, description: 'Chemin actuel du fichier lorsqu’il est archivé.' }, tool: text, created_at: text });
-const draftCandidate = object({ id: { ...integer, description: 'Numéro de l’esquisse ou du morceau dans la liste.' },
-  project_path: project, preview_path: wav, warnings: { ...array(text), description: 'Écarts au brief et avertissements techniques pour cette esquisse.' } }, {
-  music: { ...details, description: 'Style, tempo en BPM, tonalité, durée musicale et instruments retenus pour ce morceau.',
+  path: { ...path, description: ui('Chemin d’origine. Pour un projet actif, réutilise-le comme project_path.', 'Original path. For an active project, reuse it as project_path.') },
+  state: { type: 'string', enum: OUTPUT_STATES, description: ui('Emplacement actuel du fichier, au chemin d’origine ou dans l’archive.', 'Current file location, at its original path or in the archive.') },
+}, { archive_path: { ...path, description: ui('Chemin actuel du fichier lorsqu’il est archivé.', 'Current path of the archived file.') }, tool: text, created_at: text });
+const draftCandidate = object({ id: { ...integer, description: ui('Numéro de l’esquisse ou du morceau dans la liste.', 'Draft or track number in the list.') },
+  project_path: project, preview_path: wav, warnings: { ...array(text), description: ui('Écarts au brief et avertissements techniques pour cette esquisse.', 'Technical warnings and differences from the brief for this draft.') } }, {
+  music: { ...details, description: ui('Style, tempo en BPM, tonalité, durée musicale et instruments retenus pour ce morceau.', 'Style, tempo in BPM, key, duration, and instruments for this track.'),
     properties: { style: text, tempo: number, key: text, durationSeconds: number, instruments: array(text) } },
-  brief: { ...text, description: 'Brief du morceau de la collection. Réutilise-le avec seed dans draft_music et variants=1 pour reprendre ce morceau seul.' },
-  seed: { ...integer, description: 'Graine à transmettre à draft_music pour rejouer ce morceau seul.' },
-  title: { ...text, description: 'Titre affiché du morceau.' },
+  brief: { ...text, description: ui(
+    'Brief du morceau de la collection. Réutilise-le avec seed dans draft_music et variants=1 pour reprendre ce morceau seul.',
+    'Track brief from the collection. Reuse it and its seed in draft_music with variants=1 to recreate the track on its own.',
+  ) },
+  seed: { ...integer, description: ui('Graine à transmettre à draft_music pour rejouer ce morceau seul.', 'Seed to give draft_music to recreate this track on its own.') },
+  title: { ...text, description: ui('Titre affiché du morceau.', 'Display title of the track.') },
   midi_source: object({ track: integer, channel: integer, start_bar: integer, bars: integer, meter: array(integer),
     ticks_per_quarter: integer, tempo: integer }),
 });
@@ -57,21 +68,24 @@ const results = {
     oneOf: [{ required: ['sound', 'audio'] }, { required: ['markers', 'timbre'] }],
   },
   calibrate_sound: object({ sound: text, role: text, probes: array(details),
-    calibration_path: { ...path, description: 'Fichier à inclure dans calibration_paths pour appliquer les corrections.' } }),
+    calibration_path: { ...path, description: ui('Fichier à inclure dans calibration_paths pour appliquer les corrections.', 'File to include in calibration_paths to apply the correction.') } }),
   compare_sounds: object({ files: array(take) }, {
-    reveal_path: { ...path, description: 'Manifeste des identités des prises anonymisées avec blind=true.' },
-    seed: { ...integer, description: 'Graine de génération renvoyée lorsque la comparaison est nominative.' },
+    reveal_path: { ...path, description: ui('Manifeste des identités des prises anonymisées avec blind=true.', 'Manifest revealing the take identities when blind=true.') },
+    seed: { ...integer, description: ui('Graine de génération renvoyée lorsque la comparaison est nominative.', 'Generation seed returned when take identities are visible.') },
   }),
   vary_sound: object({ reference: object({ id: text, label: text, preview_path: wav }), sounds: array(variantSound) }),
   list_catalog: object({ category: text, items: array(object({ id: text, description: text }, { label: text, part: text, source: text, tempo: number })) },
     { colors: details, instruments: array(text) }),
   draft_music: {
     ...object({ seed: integer,
-      candidates: { ...array(draftCandidate), description: 'Esquisses issues d’un brief, ou un morceau par brief dans l’ordre fourni.' },
-      firstToPreview: { ...integer, description: 'Identifiant de la préécoute suggérée en premier.' },
-      report_path: { ...path, description: 'Manifeste local qui rassemble les préécoutes et les projets de cette génération.' },
-    }, { mode: { const: 'collection', description: 'La réponse contient des morceaux indépendants.' }, title: text,
-      shared_options: { ...details, description: 'Réglages explicites communs à recopier dans draft_music pour reprendre un morceau de la collection.' },
+      candidates: { ...array(draftCandidate), description: ui('Esquisses issues d’un brief, ou un morceau par brief dans l’ordre fourni.', 'Drafts from one brief, or one track per brief in the supplied order.') },
+      firstToPreview: { ...integer, description: ui('Identifiant de la préécoute suggérée en premier.', 'ID of the suggested first preview.') },
+      report_path: { ...path, description: ui('Manifeste local qui rassemble les préécoutes et les projets de cette génération.', 'Local manifest listing the previews and projects from this generation.') },
+    }, { mode: { const: 'collection', description: ui('La réponse contient des morceaux indépendants.', 'The response contains standalone tracks.') }, title: text,
+      shared_options: { ...details, description: ui(
+        'Réglages explicites communs à recopier dans draft_music pour reprendre un morceau de la collection.',
+        'Shared explicit settings to reuse in draft_music when recreating a collection track.',
+      ) },
     }),
     if: { required: ['mode'] }, then: { required: ['title', 'shared_options'], properties: {
       candidates: { minItems: 3, maxItems: 6, items: { required: ['brief', 'seed', 'title'] } },
@@ -84,8 +98,11 @@ const results = {
   preview_music: object({ files: array(take) }, { reveal_path: path }),
   compare_music_choices: {
     ...object({ criterion: text, files: array(take) }, {
-      comparison_path: { ...path, description: 'Pour learn_music_preference après choix explicite sur accompaniment ou breath.' },
-      reveal_path: { ...path, description: 'Correspondance des variantes et des projets du critère build.' },
+      comparison_path: { ...path, description: ui(
+        'Pour learn_music_preference après choix explicite sur accompaniment ou breath.',
+        'Pass to learn_music_preference after an explicit accompaniment or breath choice.',
+      ) },
+      reveal_path: { ...path, description: ui('Correspondance des variantes et des projets du critère build.', 'Mapping between build variants and their projects.') },
     }),
     oneOf: [
       { properties: { criterion: { enum: ['accompaniment', 'breath'] } }, required: ['comparison_path'] },
@@ -93,23 +110,23 @@ const results = {
     ],
   },
   learn_music_preference: object({ criterion: text, choice: text, choices: details,
-    profile_path: { ...path, description: 'Profil local réutilisable dans draft_music.' } }),
+    profile_path: { ...path, description: ui('Profil local réutilisable dans draft_music.', 'Local profile that can be reused in draft_music.') } }),
   analyze_music: object({ ...waveStats.properties, warnings: array(text) }, {
-    channels: { ...integer, enum: [1, 2], description: 'Nombre de canaux du signal mesuré.' },
-    sampleRate: { ...integer, description: 'Fréquence d’échantillonnage du signal mesuré, en hertz.' },
-    clippedFrames: { ...integer, description: 'Nombre de trames dont un canal atteint le seuil de saturation numérique.' },
-    stereoCorrelation: { ...numericOrNull, description: 'Corrélation entre canaux de −1 à 1, ou null si elle est indéfinie.' },
-    sections: { ...array(details), description: 'Mesures par section pour un projet SoundMCP.' },
-    stems: { ...details, description: 'Niveaux moyens rmsDbfs par pupitre pour un projet SoundMCP.' },
-    suggestedEdits: { ...array(details), description: 'Retouches proposées pour un projet, au format edits de edit_music.' },
+    channels: { ...integer, enum: [1, 2], description: ui('Nombre de canaux du signal mesuré.', 'Number of channels in the measured signal.') },
+    sampleRate: { ...integer, description: ui('Fréquence d’échantillonnage du signal mesuré, en hertz.', 'Sample rate of the measured signal in hertz.') },
+    clippedFrames: { ...integer, description: ui('Nombre de trames dont un canal atteint le seuil de saturation numérique.', 'Number of frames where any channel reaches the digital clipping threshold.') },
+    stereoCorrelation: { ...numericOrNull, description: ui('Corrélation entre canaux de −1 à 1, ou null si elle est indéfinie.', 'Channel correlation from −1 to 1, or null when undefined.') },
+    sections: { ...array(details), description: ui('Mesures par section pour un projet SoundMCP.', 'Per-section measurements for a SoundMCP project.') },
+    stems: { ...details, description: ui('Niveaux moyens rmsDbfs par pupitre pour un projet SoundMCP.', 'Per-part average rmsDbfs for a SoundMCP project.') },
+    suggestedEdits: { ...array(details), description: ui('Retouches proposées pour un projet, au format edits de edit_music.', 'Suggested project edits in the format accepted by edit_music.') },
     harmonicOverlaps: object({ total: integer, minimumSeconds: number, bars: array(details), examples: array(details) }),
   }),
   inspect_score: object({ start_bar: integer, bars: integer, measures: array(details),
     events: array(object({ bar: integer, part: text, instrument: text, beat: number, duration: number, played: details }, { pitch: integer, hit: text })),
-    offset: integer, event_count: integer, next_offset: { ...offset, description: 'Valeur à passer dans offset pour la page suivante.' } }),
+    offset: integer, event_count: integer, next_offset: { ...offset, description: ui('Valeur à passer dans offset pour la page suivante.', 'Pass this value as offset for the next page.') } }),
   manage_outputs: { type: 'object', oneOf: [
     object({ output_dir: path, files: array(asset), total: integer,
-      next_offset: { ...offset, description: 'À passer dans offset avec les mêmes filtres, ou null à la dernière page.' } }),
+      next_offset: { ...offset, description: ui('À passer dans offset avec les mêmes filtres, ou null à la dernière page.', 'Pass as offset with the same filters, or null on the last page.') } }),
     { ...asset, properties: { output_dir: path, ...asset.properties }, required: ['output_dir', ...asset.required] },
   ] },
   create_sfx: { type: 'object', oneOf: [
@@ -126,7 +143,7 @@ const CHANGES_PATHS = new Set(['create_music', 'create_sfx', 'create_ambience', 
 
 function toolContract(name, createsFiles) {
   const schema = results[name];
-  if (!schema) throw new Error(`Contrat de sortie manquant pour ${name}.`);
+  if (!schema) throw new Error(ui(`Contrat de sortie manquant pour ${name}.`, `Missing output contract for ${name}.`));
   return {
     outputSchema: createsFiles ? { ...schema, properties: { ...schema.properties, managed_outputs: managedOutputs, output_management_warning: text } } : schema,
     annotations: READ_ONLY.has(name) ? { readOnlyHint: true, openWorldHint: false } : {

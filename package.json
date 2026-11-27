@@ -35,6 +35,7 @@
     "banks/studio/CREDITS.md",
     "CHANGELOG.md",
     "README.md",
+    "README.en.md",
     "LICENSE"
   ],
   "publishConfig": {

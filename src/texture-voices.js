@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { makeRng } = require('./rng');
 
 const TAU = Math.PI * 2;
@@ -7,32 +9,32 @@ const ELECTRIC = ['electric-clean', 'electric-drive', 'electric-swell'];
 const ORCHESTRAL_TEXTURES = ['timpani', 'timpani-roll', 'concert-bass-drum', 'concert-snare', 'frame-drum', 'gong', 'cymbal-swell', 'orchestral-cymbals'];
 const STUDIO_INSTRUMENTS = [...ELECTRIC, 'harp', 'vibraphone', 'cello', 'trumpet', 'trombone', 'tuba', ...ORCHESTRAL_TEXTURES];
 const SOUNDS = {
-  trumpet: ['Trompette', 'Cuivre aigu, jeu tenu ou détaché.', 'mel', 70, 56],
-  trombone: ['Trombone ténor', 'Cuivre grave et franc, jeu tenu ou détaché.', 'counter', 53, 57],
-  tuba: ['Tuba', 'Cuivre grave aux attaques rondes.', 'bass', 43, 58],
-  timpani: ['Timbales', 'Frappes accordées et prises alternées.', 'texture', 43, 47],
-  'timpani-roll': ['Roulement de timbales', 'Roulement continu accordé à la note jouée.', 'texture', 43, 47],
-  'concert-bass-drum': ['Grosse caisse d’orchestre', 'Frappes graves de concert en deux nuances.', 'texture', 36, null],
-  'concert-snare': ['Caisse claire à cordes', 'Caisse claire grave, frappes alternées.', 'texture', 38, null],
-  'frame-drum': ['Tambour sur cadre', 'Résonance de peau et attaques alternées.', 'texture', 45, null],
-  gong: ['Gong', 'Frappe métallique à longue résonance.', 'texture', 55, null],
-  'cymbal-swell': ['Crescendo de cymbale', 'Roulement de cymbale dont le point fort tombe à la fin de la durée.', 'texture', 55, null],
-  'orchestral-cymbals': ['Cymbales frappées', 'Accents d’orchestre à plusieurs nuances.', 'texture', 49, null],
-  harp: ['Harpe de concert', 'Cordes pincées et résonance boisée, deux nuances enregistrées.', 'arp', 62, 46],
-  vibraphone: ['Vibraphone', 'Lames de métal résonnantes, baguettes souples et dures selon la nuance.', 'mel', 65, 11],
-  cello: ['Section de violoncelles', 'Archet, pizzicato et spiccato, plusieurs nuances et prises.', 'pad', 55, 42],
-  'electric-clean': ['Guitare électrique claire', 'Prises au micro magnétique, attaque nette et léger chorus.', 'arp', 55, 27],
-  'electric-drive': ['Guitare électrique saturée', 'Prises électriques avec saturation et filtrage de baffle.', 'arp', 48, 30],
-  'electric-swell': ['Guitare en volume progressif', 'L’attaque s’efface et la note se déploie comme une nappe.', 'pad', 55, 27],
-  'tape-keys': ['Clavier sur bande', 'Clavier électrique voilé, avec une fluctuation lente de hauteur.', 'mel', 65, 4],
-  'glass-keys': ['Verre frappé', 'Attaque vitreuse, partiels inharmoniques et courte résonance.', 'mel', 71, 9],
-  'bowed-metal': ['Métal frotté', 'Résonance accordée à l’archet, avec un frottement qui monte.', 'counter', 60, 98],
-  'granular-pad': ['Nappe granulaire', 'Petits grains décalés, avec une légère dérive stéréo et de hauteur.', 'pad', 57, 89],
-  'sub-pulse': ['Grave pulsé', 'Fondamentale ronde et pulsation douce, centrée dans le mix.', 'bass', 40, 38],
-  'iron-scrape': ['Raclement métallique', 'Grain de friction et plusieurs résonances qui se déplacent.', 'texture', 55, null],
-  'reverse-swell': ['Montée inversée', 'Gonflement de bruit filtré et de partiels avant une rupture.', 'texture', 50, null],
-  'dark-impact': ['Impact sourd', 'Frappe brève, corps grave et décroissance irrégulière.', 'texture', 43, null],
-  'tape-air': ['Souffle de bande', 'Fond de bruit instable, avec de petits passages plus rugueux.', 'texture', 54, null],
+  trumpet: [ui('Trompette', 'Trumpet'), ui('Cuivre aigu, jeu tenu ou détaché.', 'Bright high brass, sustained or detached.'), 'mel', 70, 56],
+  trombone: [ui('Trombone ténor', 'Tenor trombone'), ui('Cuivre grave et franc, jeu tenu ou détaché.', 'Direct low brass, sustained or detached.'), 'counter', 53, 57],
+  tuba: [ui('Tuba', 'Tuba'), ui('Cuivre grave aux attaques rondes.', 'Low brass with rounded attacks.'), 'bass', 43, 58],
+  timpani: [ui('Timbales', 'Timpani'), ui('Frappes accordées et prises alternées.', 'Pitched strikes with alternating samples.'), 'texture', 43, 47],
+  'timpani-roll': [ui('Roulement de timbales', 'Timpani roll'), ui('Roulement continu accordé à la note jouée.', 'Sustained roll tuned to the played note.'), 'texture', 43, 47],
+  'concert-bass-drum': [ui('Grosse caisse d’orchestre', 'Concert bass drum'), ui('Frappes graves de concert en deux nuances.', 'Low concert drum hits recorded at two dynamics.'), 'texture', 36, null],
+  'concert-snare': [ui('Caisse claire à cordes', 'Concert snare'), ui('Caisse claire grave, frappes alternées.', 'Deep snare with alternating hits.'), 'texture', 38, null],
+  'frame-drum': [ui('Tambour sur cadre', 'Frame drum'), ui('Résonance de peau et attaques alternées.', 'Skin resonance with alternating attacks.'), 'texture', 45, null],
+  gong: [ui('Gong', 'Gong'), ui('Frappe métallique à longue résonance.', 'Metal strike with long resonance.'), 'texture', 55, null],
+  'cymbal-swell': [ui('Crescendo de cymbale', 'Cymbal swell'), ui('Roulement de cymbale dont le point fort tombe à la fin de la durée.', 'Cymbal roll that peaks at the end of the note.'), 'texture', 55, null],
+  'orchestral-cymbals': [ui('Cymbales frappées', 'Orchestral cymbals'), ui('Accents d’orchestre à plusieurs nuances.', 'Orchestral accents recorded at several dynamics.'), 'texture', 49, null],
+  harp: [ui('Harpe de concert', 'Concert harp'), ui('Cordes pincées et résonance boisée, deux nuances enregistrées.', 'Plucked strings and a woody resonance, recorded at two dynamics.'), 'arp', 62, 46],
+  vibraphone: [ui('Vibraphone', 'Vibraphone'), ui('Lames de métal résonnantes, baguettes souples et dures selon la nuance.', 'Resonant metal bars with soft or hard mallets depending on dynamics.'), 'mel', 65, 11],
+  cello: [ui('Section de violoncelles', 'Cello section'), ui('Archet, pizzicato et spiccato, plusieurs nuances et prises.', 'Bowed, pizzicato, and spiccato samples at several dynamics.'), 'pad', 55, 42],
+  'electric-clean': [ui('Guitare électrique claire', 'Clean electric guitar'), ui('Prises au micro magnétique, attaque nette et léger chorus.', 'Magnetic pickup recordings with a clear attack and light chorus.'), 'arp', 55, 27],
+  'electric-drive': [ui('Guitare électrique saturée', 'Driven electric guitar'), ui('Prises électriques avec saturation et filtrage de baffle.', 'Electric guitar with drive and cabinet filtering.'), 'arp', 48, 30],
+  'electric-swell': [ui('Guitare en volume progressif', 'Electric guitar swell'), ui('L’attaque s’efface et la note se déploie comme une nappe.', 'A softened attack that opens into a sustained pad.'), 'pad', 55, 27],
+  'tape-keys': [ui('Clavier sur bande', 'Tape keys'), ui('Clavier électrique voilé, avec une fluctuation lente de hauteur.', 'Mellow electric keys with slow pitch variation.'), 'mel', 65, 4],
+  'glass-keys': [ui('Verre frappé', 'Struck glass'), ui('Attaque vitreuse, partiels inharmoniques et courte résonance.', 'Glassy attack, inharmonic partials, and a short decay.'), 'mel', 71, 9],
+  'bowed-metal': [ui('Métal frotté', 'Bowed metal'), ui('Résonance accordée à l’archet, avec un frottement qui monte.', 'Tuned metal resonance with rising bow friction.'), 'counter', 60, 98],
+  'granular-pad': [ui('Nappe granulaire', 'Granular pad'), ui('Petits grains décalés, avec une légère dérive stéréo et de hauteur.', 'Staggered grains with gentle stereo and pitch drift.'), 'pad', 57, 89],
+  'sub-pulse': [ui('Grave pulsé', 'Sub pulse'), ui('Fondamentale ronde et pulsation douce, centrée dans le mix.', 'Round fundamental and a gentle pulse in the center of the mix.'), 'bass', 40, 38],
+  'iron-scrape': [ui('Raclement métallique', 'Metal scrape'), ui('Grain de friction et plusieurs résonances qui se déplacent.', 'Grainy friction and shifting resonances.'), 'texture', 55, null],
+  'reverse-swell': [ui('Montée inversée', 'Reverse swell'), ui('Gonflement de bruit filtré et de partiels avant une rupture.', 'Rising filtered noise and partials before a break.'), 'texture', 50, null],
+  'dark-impact': [ui('Impact sourd', 'Dark impact'), ui('Frappe brève, corps grave et décroissance irrégulière.', 'Short strike with a low body and uneven decay.'), 'texture', 43, null],
+  'tape-air': [ui('Souffle de bande', 'Tape air'), ui('Fond de bruit instable, avec de petits passages plus rugueux.', 'Unsteady background noise with occasional rough patches.'), 'texture', 54, null],
 };
 
 const COLORS = {

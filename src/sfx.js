@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 /**
  * Effets sonores procéduraux pour les jeux : jump, coin, hit, explosion…
  * Chaque preset est un mini-programme de synthèse (oscillateurs + bruit filtré).
@@ -18,38 +20,38 @@ const panGains = (pan) => {
 };
 
 const SFX_KINDS = {
-  jump: { desc: 'Saut : sweep carré ascendant (plateformeur)' },
-  coin: { desc: 'Pièce : deux notes brillantes, classique arcade' },
-  pickup: { desc: 'Ramassage : pluck doux' },
-  hit: { desc: 'Coup reçu : bruit + impact grave' },
-  damage: { desc: 'Dégâts : impact agressif + buzz descendant' },
-  explosion: { desc: 'Explosion : souffle grave long + sub' },
-  whoosh: { desc: 'Passage rapide : souffle filtré montant/descendant' },
-  laser: { desc: 'Laser : sweep descendant métallique' },
-  powerup: { desc: 'Power-up : arpège carré ascendant' },
-  levelup: { desc: 'Level-up : fanfare de cloches (accord majeur)' },
-  heal: { desc: 'Soin : dyade chaude montant' },
-  click: { desc: 'Clic UI : tick très court' },
-  hover: { desc: 'Survol UI : blip doux' },
-  error: { desc: 'Erreur : deux buzz descendants dissonants' },
-  success: { desc: 'Succès : deux notes triomphantes' },
-  footstep: { desc: 'Pas : thump feutré (varié par seed)' },
-  door: { desc: 'Porte : couinement lent + claquement sourd' },
-  splash: { desc: 'Éclaboussure : gerbe d\'eau + gouttes descendantes' },
-  heartbeat: { desc: 'Battement de cœur : double pouls grave (lub-dub)' },
-  alarm: { desc: 'Alarme : klaxon deux tons répété' },
-  sword: { desc: 'Épée : coup d\'air + choc métallique (shing)' },
-  bubble: { desc: 'Bulles : trois blips d\'eau montants' },
-  magic: { desc: 'Magie : arpège scintillant montant + poussière de étoiles' },
-  teleport: { desc: 'Téléportation : aspiration grave puis flash aigu' },
-  bowShoot: { desc: 'Arc : corde qui claque + flèche qui siffle' },
-  gunShoot: { desc: 'Coup de feu : détonation sèche + boom grave + écho' },
-  thunder: { desc: 'Tonnerre : craquement initial + grondement long' },
-  questComplete: { desc: 'Quête accomplie : fanfare 4 notes + cloche brillante' },
-  menuOpen: { desc: 'Menu ouvert : deux notes douces montantes' },
-  chestOpen: { desc: 'Coffre : grincement de charnière + claquement + trésor' },
-  ghost: { desc: 'Fantôme : whoosh spectral + voix éthérée vacillante' },
-  forge: { desc: 'Forge : coup de marteau + résonance métallique + braises' },
+  jump: { desc: ui('Saut : sweep carré ascendant (plateformeur)', 'Jump with a rising square-wave sweep.') },
+  coin: { desc: ui('Pièce : deux notes brillantes, classique arcade', 'Arcade coin pickup with two bright notes.') },
+  pickup: { desc: ui('Ramassage : pluck doux', 'Soft plucked pickup sound.') },
+  hit: { desc: ui('Coup reçu : bruit + impact grave', 'Hit with noise and a low impact.') },
+  damage: { desc: ui('Dégâts : impact agressif + buzz descendant', 'Aggressive damage impact with a descending buzz.') },
+  explosion: { desc: ui('Explosion : souffle grave long + sub', 'Explosion with a long low rumble and sub-bass.') },
+  whoosh: { desc: ui('Passage rapide : souffle filtré montant/descendant', 'Fast pass-by with a rising and falling filtered rush.') },
+  laser: { desc: ui('Laser : sweep descendant métallique', 'Laser with a descending metallic sweep.') },
+  powerup: { desc: ui('Power-up : arpège carré ascendant', 'Power-up with a rising square-wave arpeggio.') },
+  levelup: { desc: ui('Level-up : fanfare de cloches (accord majeur)', 'Level-up bell fanfare on a major chord.') },
+  heal: { desc: ui('Soin : dyade chaude montant', 'Warm rising two-note heal sound.') },
+  click: { desc: ui('Clic UI : tick très court', 'Short UI click.') },
+  hover: { desc: ui('Survol UI : blip doux', 'Soft UI hover blip.') },
+  error: { desc: ui('Erreur : deux buzz descendants dissonants', 'Error sound with two dissonant descending buzzes.') },
+  success: { desc: ui('Succès : deux notes triomphantes', 'Success sound with two triumphant notes.') },
+  footstep: { desc: ui('Pas : thump feutré (varié par seed)', 'Soft footstep that varies with the seed.') },
+  door: { desc: ui('Porte : couinement lent + claquement sourd', 'Slow door creak followed by a low slam.') },
+  splash: { desc: ui('Éclaboussure : gerbe d\'eau + gouttes descendantes', 'Splash with a burst of water and falling droplets.') },
+  heartbeat: { desc: ui('Battement de cœur : double pouls grave (lub-dub)', 'Low double-pulse heartbeat.') },
+  alarm: { desc: ui('Alarme : klaxon deux tons répété', 'Repeating two-tone alarm.') },
+  sword: { desc: ui('Épée : coup d\'air + choc métallique (shing)', 'Sword whoosh with a metallic strike.') },
+  bubble: { desc: ui('Bulles : trois blips d\'eau montants', 'Three rising water bubbles.') },
+  magic: { desc: ui('Magie : arpège scintillant montant + poussière de étoiles', 'Sparkling rising magic arpeggio with a trail of chimes.') },
+  teleport: { desc: ui('Téléportation : aspiration grave puis flash aigu', 'Teleport with a low pull followed by a bright flash.') },
+  bowShoot: { desc: ui('Arc : corde qui claque + flèche qui siffle', 'Bowstring snap and arrow whistle.') },
+  gunShoot: { desc: ui('Coup de feu : détonation sèche + boom grave + écho', 'Dry gunshot with a low boom and echo.') },
+  thunder: { desc: ui('Tonnerre : craquement initial + grondement long', 'Thunder crack followed by a long rumble.') },
+  questComplete: { desc: ui('Quête accomplie : fanfare 4 notes + cloche brillante', 'Four-note quest fanfare and a bright bell.') },
+  menuOpen: { desc: ui('Menu ouvert : deux notes douces montantes', 'Two gentle rising notes for opening a menu.') },
+  chestOpen: { desc: ui('Coffre : grincement de charnière + claquement + trésor', 'Chest hinge creak, latch clack, and treasure chime.') },
+  ghost: { desc: ui('Fantôme : whoosh spectral + voix éthérée vacillante', 'Spectral whoosh and wavering ghostly voice.') },
+  forge: { desc: ui('Forge : coup de marteau + résonance métallique + braises', 'Forge hammer strike with metal resonance and crackling embers.') },
 };
 
 /* --------------------------- primitives --------------------------- */
@@ -487,7 +489,7 @@ const SFX_IDS = Object.keys(SFX_KINDS);
  */
 function createSfx(kind, opts = {}) {
   const preset = PRESETS[kind];
-  if (!preset) throw new Error(`SFX inconnu: ${kind}. Disponibles: ${SFX_IDS.join(', ')}`);
+  if (!preset) throw new Error(ui(`SFX inconnu: ${kind}. Disponibles: ${SFX_IDS.join(', ')}`, `Unknown SFX: ${kind}. Available: ${SFX_IDS.join(', ')}`));
   const seed = opts.seed == null ? randomSeed() : opts.seed >>> 0;
   const rng = makeRng(seed);
   const sr = opts.sr || 44100;

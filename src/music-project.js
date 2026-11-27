@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
@@ -35,7 +37,7 @@ function writeProject(file, song, bit_depth) {
 }
 
 function readProject(file) {
-  if (fs.statSync(file).size > 32 * 1024 * 1024) throw new Error('Projet SoundMCP trop volumineux.');
+  if (fs.statSync(file).size > 32 * 1024 * 1024) throw new Error(ui('Projet SoundMCP trop volumineux.', 'SoundMCP project is too large.'));
   const project = JSON.parse(fs.readFileSync(file, 'utf8'));
   const song = project?.song;
   if (project?.type !== 'soundmcp-score' || project.version !== 1 || !song?.meta?.instrumental ||
@@ -43,7 +45,7 @@ function readProject(file) {
       !Number.isInteger(song.bars) || song.bars < 1 || song.totalBeats !== song.bars * 4 ||
       !Number.isFinite(song.bpm) || song.bpm < 40 || song.bpm > 220 || musicClock(song).seconds > 600 + 1e-8 ||
       (song.targetSeconds !== undefined && (!Number.isFinite(song.targetSeconds) || song.targetSeconds > 600 || song.targetSeconds + 1e-8 < musicClock(song).seconds))) {
-    throw new Error('Projet SoundMCP invalide.');
+    throw new Error(ui('Projet SoundMCP invalide.', 'Invalid SoundMCP project.'));
   }
   validateBuilds(song.builds, song.totalBeats);
   const patches = validatePatches(song.patches);
@@ -59,7 +61,7 @@ function readProject(file) {
         !Number.isFinite(event.vel) || !Number.isFinite(event.pan) || Math.abs(event.pan) > 1 ||
         (event.expression !== undefined && !validExpression(event.expression)) ||
         (event.timbre !== undefined && (!Number.isFinite(event.timbre) || event.timbre < 0 || event.timbre > 1))) {
-      throw new Error('Le projet contient un événement invalide.');
+      throw new Error(ui('Le projet contient un événement invalide.', 'The project contains an invalid event.'));
     }
     if (event.gesture !== undefined) event.gesture = normalizeGesture(event.gesture);
     if (validNote) event.freq = midiToFreq(event.midi);
@@ -68,12 +70,19 @@ function readProject(file) {
   return project;
 }
 
+const SECTION_ALIASES = new Map([
+  ['intro', 'Introduction'], ['theme', 'Thème'], ['bridge', 'Pont'], ['outro', 'Cadence'],
+]);
+
 function sectionIndex(song, selector) {
   if (Number.isInteger(selector) && selector >= 1 && selector <= song.meta.sections.length) return selector - 1;
-  const matches = song.meta.sections.flatMap((section, i) => section.name === selector ? [i] : []);
+  const named = (name) => song.meta.sections.flatMap((section, i) => section.name === name ? [i] : []);
+  const exact = named(selector);
+  const alias = typeof selector === 'string' && SECTION_ALIASES.get(selector.toLowerCase());
+  const matches = !exact.length && alias ? named(alias) : exact;
   if (matches.length === 1) return matches[0];
-  if (matches.length > 1) throw new Error(`La section ${selector} existe plusieurs fois. Utilise son numéro.`);
-  throw new Error(`Section introuvable : ${selector}.`);
+  if (matches.length > 1) throw new Error(ui(`La section ${selector} existe plusieurs fois. Utilise son numéro.`, `Section ${selector} occurs more than once. Use its index.`));
+  throw new Error(ui(`Section introuvable : ${selector}.`, `Section not found: ${selector}.`));
 }
 
 const beatOf = (event) => event.beat ?? event.t;
@@ -81,7 +90,7 @@ const gainFromDb = (db) => 10 ** (db / 20);
 const withGain = (event, db) => ({ ...event, gain: (event.gain ?? 1) * gainFromDb(db) });
 
 function replaceSection(song, index, patch, seed) {
-  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('La section de remplacement doit être un objet.');
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error(ui('La section de remplacement doit être un objet.', 'The replacement section must be an object.'));
   const old = song.meta.sections[index];
   const start = (old.startBar - 1) * 4;
   const stop = start + old.bars * 4;
@@ -118,16 +127,16 @@ function replaceSection(song, index, patch, seed) {
   if (index === song.meta.sections.findIndex((s) => s.theme === 'B')) updates.progressionB = fragment.meta.progression;
   const next = { ...song, events: [...preserved, ...inserted], meta: { ...song.meta, ...updates, sections } };
   const seconds = musicClock(next).seconds;
-  if (seconds > 600 + 1e-8) throw new Error('La partition retouchée dépasse 600 secondes.');
+  if (seconds > 600 + 1e-8) throw new Error(ui('La partition retouchée dépasse 600 secondes.', 'The edited score exceeds 600 seconds.'));
   if (next.targetSeconds < seconds - 1e-8) delete next.targetSeconds;
   next.meta.durationSeconds = Number(seconds.toFixed(2));
   return next;
 }
 
 function editSong(song, edits = []) {
-  if (!Array.isArray(edits) || edits.length > 32) throw new Error('edits attend jusqu’à 32 retouches.');
+  if (!Array.isArray(edits) || edits.length > 32) throw new Error(ui('edits attend jusqu’à 32 retouches.', 'edits allows up to 32 edits.'));
   for (const [operation, edit] of edits.entries()) {
-    if (!edit || !['gain', 'mute', 'replace_section', 'write_measure', 'shape_build'].includes(edit.type)) throw new Error('Type de retouche invalide.');
+    if (!edit || !['gain', 'mute', 'replace_section', 'write_measure', 'shape_build'].includes(edit.type)) throw new Error(ui('Type de retouche invalide.', 'Invalid edit type.'));
     if (edit.type === 'shape_build') {
       song = shapeBuild(song, edit);
       continue;
@@ -141,13 +150,13 @@ function editSong(song, edits = []) {
       song = replaceSection(song, index, edit.replacement, hash32(song.meta.seed, operation + 8000));
       continue;
     }
-    if (!PARTS.includes(edit.part)) throw new Error(`Pupitre inconnu : ${edit.part}.`);
-    if (edit.type === 'gain' && (!Number.isFinite(edit.db) || edit.db < -60 || edit.db > 12)) throw new Error('db doit être entre -60 et 12.');
+    if (!PARTS.includes(edit.part)) throw new Error(ui(`Pupitre inconnu : ${edit.part}.`, `Unknown part: ${edit.part}.`));
+    if (edit.type === 'gain' && (!Number.isFinite(edit.db) || edit.db < -60 || edit.db > 12)) throw new Error(ui('db doit être entre -60 et 12.', 'db must be between -60 and 12.'));
     const section = song.meta.sections[index];
     const first = (section.startBar - 1) * 4;
     const last = first + section.bars * 4;
     const selected = (ev) => ev.bus === edit.part && beatOf(ev) >= first && beatOf(ev) < last;
-    if (!song.events.some(selected)) throw new Error(`Aucun événement du pupitre ${edit.part} dans ${section.name}.`);
+    if (!song.events.some(selected)) throw new Error(ui(`Aucun événement du pupitre ${edit.part} dans ${section.name}.`, `No events for part ${edit.part} in ${section.name}.`));
     const events = edit.type === 'mute' ? song.events.filter((e) => !selected(e))
       : song.events.map((e) => selected(e) ? withGain(e, edit.db) : e);
     const sections = edit.type === 'mute' ? song.meta.sections.map((s, i) => i === index ? { ...s,
@@ -156,7 +165,7 @@ function editSong(song, edits = []) {
       : song.meta.sections;
     song = { ...song, events, meta: { ...song.meta, sections } };
   }
-  if (!song.events.length) throw new Error('Le projet retouché est silencieux.');
+  if (!song.events.length) throw new Error(ui('Le projet retouché est silencieux.', 'The edited project is silent.'));
   if (edits.length) {
     const actions = edits.map(({ type, section, part, bar, db, arrival_bar, before_bars, contour, amount }) =>
       ({ type, section, part, bar, db, arrival_bar, before_bars, contour, amount }));
@@ -166,7 +175,7 @@ function editSong(song, edits = []) {
 }
 
 function endingVariations(song, count) {
-  if (!Number.isInteger(count) || count < 1 || count > 5) throw new Error('ending_variants attend de 1 à 5 fins.');
+  if (!Number.isInteger(count) || count < 1 || count > 5) throw new Error(ui('ending_variants attend de 1 à 5 fins.', 'ending_variants must be between 1 and 5.'));
   const index = song.meta.sections.length - 1;
   const last = song.meta.sections[index];
   const patterns = [[5, 1], [4, 1], [6, 4, 5, 1], [2, 5, 1], [1, 4, 1]];
@@ -188,7 +197,7 @@ function endingVariations(song, count) {
 
 function sliceSong(song, start, bars, loop = false) {
   if (!Number.isInteger(start) || start < 1 || !Number.isInteger(bars) || bars < 1 || start + bars - 1 > song.bars) {
-    throw new Error('La région de boucle doit tenir dans la partition. start_bar commence à 1.');
+    throw new Error(ui('La région de boucle doit tenir dans la partition. start_bar commence à 1.', 'The loop region must fit within the score. start_bar is one-based.'));
   }
   const first = (start - 1) * 4;
   const last = first + bars * 4;
@@ -198,7 +207,7 @@ function sliceSong(song, start, bars, loop = false) {
     if (onset >= bars * 4) return [];
     return [{ ...ev, t: onset, beat: Math.max(0, beatOf(ev) - first), dur: Math.max(0, Math.min(ev.t + ev.dur, last) - first - onset) }];
   });
-  if (!events.length) throw new Error('Aucune note dans la région de boucle.');
+  if (!events.length) throw new Error(ui('Aucune note dans la région de boucle.', 'No notes in the loop region.'));
   const sections = song.meta.sections.flatMap((section) => {
     const lo = Math.max(start, section.startBar);
     const hi = Math.min(start + bars, section.startBar + section.bars);
@@ -219,7 +228,7 @@ function sliceSong(song, start, bars, loop = false) {
 function getEditions(song, ids, region) {
   if (ids === undefined && region === undefined) return [];
   if (!Array.isArray(ids) || !ids.length || ids.some((id) => !EDITIONS.includes(id)) || new Set(ids).size !== ids.length) {
-    throw new Error(`editions attend une liste de formats parmi ${EDITIONS.join(', ')}.`);
+    throw new Error(ui(`editions attend une liste de formats parmi ${EDITIONS.join(', ')}.`, `editions must be a list of formats from ${EDITIONS.join(', ')}.`));
   }
   const preferred = song.meta.sections.find((section) => section.parts.includes('mel') && section.bars >= 2);
   const { start_bar: start = preferred?.startBar ?? 1, bars = Math.min(8, preferred?.bars ?? song.bars) } = region ?? {};

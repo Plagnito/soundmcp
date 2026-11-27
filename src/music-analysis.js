@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const fs = require('node:fs');
 const { musicClock } = require('./music-clock');
 const { reportOverlaps } = require('./score-diagnostics');
@@ -77,11 +79,13 @@ function measure(audio) {
 
 function diagnose(stats) {
   const warnings = [];
-  if (stats.invalidFrames) warnings.push('Échantillons non numériques.');
-  if (stats.clippedFrames) warnings.push('Crêtes numériques à saturation.');
-  if (stats.integratedLufs === null || stats.integratedLufs < -32) warnings.push('Signal silencieux ou très faible.');
-  if (stats.channels === 2 && stats.stereoCorrelation !== null && stats.stereoCorrelation < 0.15) warnings.push('Écarts de phase à vérifier en mono.');
-  if (stats.crestDb !== null && stats.crestDb > 22) warnings.push('Crêtes très hautes par rapport au niveau moyen.');
+  if (stats.invalidFrames) warnings.push(ui('Échantillons non numériques.', 'Non-numeric samples.'));
+  if (stats.clippedFrames) warnings.push(ui('Crêtes numériques à saturation.', 'Peaks reach digital clipping.'));
+  if (stats.integratedLufs === null || stats.integratedLufs < -32) warnings.push(ui('Signal silencieux ou très faible.', 'Silent or very quiet signal.'));
+  if (stats.channels === 2 && stats.stereoCorrelation !== null && stats.stereoCorrelation < 0.15) {
+    warnings.push(ui('Écarts de phase à vérifier en mono.', 'Check stereo phase differences in mono.'));
+  }
+  if (stats.crestDb !== null && stats.crestDb > 22) warnings.push(ui('Crêtes très hautes par rapport au niveau moyen.', 'Peaks are high compared with the average level.'));
   return warnings;
 }
 
@@ -114,7 +118,8 @@ function scoreMetrics(song, audio, stems = {}) {
   const harmonicOverlaps = reportOverlaps(song, clock);
   if (harmonicOverlaps.total) {
     const measures = harmonicOverlaps.bars.slice(0, 3).map(({ bar }) => bar);
-    warnings.push(`Chevauchements prolongés entre mélodie et accompagnement à écouter, notamment aux mesures ${measures.join(', ')}.`);
+    warnings.push(ui('Chevauchements prolongés entre mélodie et accompagnement à écouter, notamment aux mesures ',
+      'Check sustained overlaps between melody and accompaniment, especially in bars ') + `${measures.join(', ')}.`);
   }
   const audible = sections.filter(({ rmsDbfs }) => rmsDbfs !== null).sort((a, b) => a.rmsDbfs - b.rmsDbfs);
   const marker = ({ name, startBar, seconds, rmsDbfs }) => ({ name, startBar, seconds, rmsDbfs });
@@ -122,18 +127,19 @@ function scoreMetrics(song, audio, stems = {}) {
     rmsDifferenceDb: rounded(audible.at(-1).rmsDbfs - audible[0].rmsDbfs, 1) } : undefined;
   const suggestedEdits = [];
   if (phrases.length >= 7 && repetition > 0.7) {
-    warnings.push('Plus de 70 % des mesures mélodiques reprennent le même rythme et contour.');
+    warnings.push(ui('Plus de 70 % des mesures mélodiques reprennent le même rythme et contour.',
+      'Over 70% of melody bars repeat the same rhythm and contour.'));
     const index = sections.findIndex((section) => section.name === 'Reprise' && section.perPart.mel > 0);
     if (index >= 0) suggestedEdits.push({ type: 'replace_section', section: index + 1, replacement: { variation: 2 } });
   }
   if (stems.mel?.rmsDbfs != null && stems.drum?.rmsDbfs != null && stems.mel.rmsDbfs < stems.drum.rmsDbfs - 11) {
-    warnings.push('La batterie domine le niveau moyen de la mélodie.');
+    warnings.push(ui('La batterie domine le niveau moyen de la mélodie.', 'Drums are louder than the melody on average.'));
     const index = sections.findIndex((section) => section.perPart.mel > 0 && section.perPart.drum > 0);
     if (index >= 0) suggestedEdits.push({ type: 'gain', section: index + 1, part: 'drum', db: -5 });
   }
   const brief = song.meta.brief;
   const missing = brief ? brief.instruments.filter((inst) => !instruments.includes(inst)) : [];
-  if (missing.length) warnings.push(`Instruments demandés absents : ${missing.join(', ')}.`);
+  if (missing.length) warnings.push(ui('Instruments demandés absents : ', 'Missing requested instruments: ') + `${missing.join(', ')}.`);
   return { ...stats, instruments, sections, stems, repetitionRatio: rounded(repetition, 3), harmonicOverlaps,
     ...(formDynamics ? { formDynamics } : {}), warnings, suggestedEdits,
     history: song.history ?? [], ...(brief ? { briefCheck: { requestedSeconds: brief.duration, actualSeconds: stats.durationSeconds,
@@ -165,14 +171,14 @@ function matchLevels(audio, target = -17, references) {
 }
 
 function readWave(file) {
-  if (fs.statSync(file).size > 480 * 1024 * 1024) throw new Error('WAV trop volumineux.');
+  if (fs.statSync(file).size > 480 * 1024 * 1024) throw new Error(ui('WAV trop volumineux.', 'WAV file is too large.'));
   const buffer = fs.readFileSync(file);
-  if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') throw new Error('Fichier WAV RIFF attendu.');
+  if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') throw new Error(ui('Fichier WAV RIFF attendu.', 'Expected a RIFF WAV file.'));
   let format, data;
   for (let i = 12; i + 8 <= buffer.length;) {
     const id = buffer.toString('ascii', i, i + 4), size = buffer.readUInt32LE(i + 4);
     const offset = i + 8;
-    if (offset + size > buffer.length) throw new Error('WAV tronqué.');
+    if (offset + size > buffer.length) throw new Error(ui('WAV tronqué.', 'Truncated WAV file.'));
     if (id === 'fmt ' && size >= 16) {
       const tag = buffer.readUInt16LE(offset);
       format = { type: tag === 0xfffe && size >= 40 ? buffer.readUInt16LE(offset + 24) : tag,
@@ -183,12 +189,12 @@ function readWave(file) {
   }
   if (!format || !data || ![1, 2].includes(format.channels) || format.sr < 8000 || format.sr > 96000 ||
       !(format.type === 3 && format.bits === 32 || format.type === 1 && [16, 24, 32].includes(format.bits))) {
-    throw new Error('Utilise un WAV mono ou stéréo PCM 16/24/32 bits, ou flottant 32 bits.');
+    throw new Error(ui('Utilise un WAV mono ou stéréo PCM 16/24/32 bits, ou flottant 32 bits.', 'Use a mono or stereo WAV with 16-, 24-, or 32-bit PCM or 32-bit float samples.'));
   }
   const { channels, sr, bits, type } = format;
   const width = bits / 8, stride = width * channels;
   const n = Math.floor(data.size / stride);
-  if (!n || n / sr > 603) throw new Error('Durée du WAV hors plage.');
+  if (!n || n / sr > 603) throw new Error(ui('Durée du WAV hors plage.', 'WAV duration out of range.'));
   const L = new Float32Array(n), R = channels === 2 ? new Float32Array(n) : L;
   const read = type === 3 ? (pos) => buffer.readFloatLE(pos) : (pos) => buffer.readIntLE(pos, width) / (2 ** (bits - 1));
   for (let i = 0, pos = data.offset; i < n; i++, pos += stride) {

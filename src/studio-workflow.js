@@ -1,5 +1,7 @@
 'use strict';
 
+const { ui } = require('./language');
+
 const { createSong } = require('./composer');
 const { sliceSong, sectionIndex } = require('./music-project');
 const { musicClock } = require('./music-clock');
@@ -12,14 +14,14 @@ function anchor(song) {
 }
 
 function excerpt(song, { section, region, max_seconds: max = 18 } = {}) {
-  if (!Number.isFinite(max) || max < 4 || max > 45) throw new Error('max_seconds attend 4 à 45 secondes.');
-  if (section !== undefined && region !== undefined) throw new Error('Choisis une section ou une plage de mesures.');
+  if (!Number.isFinite(max) || max < 4 || max > 45) throw new Error(ui('max_seconds attend 4 à 45 secondes.', 'max_seconds must be between 4 and 45 seconds.'));
+  if (section !== undefined && region !== undefined) throw new Error(ui('Choisis une section ou une plage de mesures.', 'Choose a section or a bar range.'));
   const selected = section === undefined ? anchor(song) : song.meta.sections[sectionIndex(song, section)];
   const start = region?.start_bar ?? selected.startBar;
   const limit = section !== undefined ? selected.bars : song.bars - start + 1;
   const explicit = region?.bars;
   if (!Number.isInteger(start) || start < 1 || start > song.bars || (region !== undefined && (!Number.isInteger(explicit) || explicit < 1 || explicit > limit))) {
-    throw new Error('Plage de préécoute invalide.');
+    throw new Error(ui('Plage de préécoute invalide.', 'Invalid preview range.'));
   }
   const first = (start - 1) * 4;
   const clock = musicClock(song);
@@ -53,7 +55,7 @@ function combine(song, pieces) {
 }
 
 function cutMusic(song, seconds) {
-  if (![15, 30, 60].includes(seconds)) throw new Error('Une édition courte dure 15, 30 ou 60 secondes.');
+  if (![15, 30, 60].includes(seconds)) throw new Error(ui('Une édition courte dure 15, 30 ou 60 secondes.', 'A short edit must be 15, 30, or 60 seconds long.'));
   const hook = anchor(song);
   const tempo = hook.tempo ?? song.bpm;
   const parts = [...new Set([...hook.parts.filter((p) => p !== 'drum' && p !== 'counter'), 'mel'])];
@@ -90,7 +92,7 @@ function cutMusic(song, seconds) {
   pieces.push(ending);
   const result = combine(song, pieces);
   const duration = musicClock(result).seconds;
-  if (duration > seconds + 1e-8) throw new Error(`Une mesure à ${tempo} BPM dépasse ${seconds} s.`);
+  if (duration > seconds + 1e-8) throw new Error(ui(`Une mesure à ${tempo} BPM dépasse ${seconds} s.`, `A bar at ${tempo} BPM lasts longer than ${seconds} s.`));
   return { ...result, targetSeconds: seconds, meta: { ...result.meta, durationSeconds: Number(duration.toFixed(2)), cutSeconds: seconds } };
 }
 
