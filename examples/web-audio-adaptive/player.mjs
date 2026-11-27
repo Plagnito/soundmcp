@@ -56,15 +56,21 @@ export class AdaptiveMusicPlayer {
     return node;
   }
 
+  nextStartFrame() {
+    return Math.ceil((this.context.currentTime + LEAD_TIME) * this.context.sampleRate);
+  }
+
   play() {
     if (this.session) return false;
     const intro = this.source(this.buffers.intro);
     const loop = this.source(this.buffers.loop);
-    const start = this.context.currentTime + LEAD_TIME;
-    const loopAt = start + this.buffers.intro.duration;
+    const rate = this.context.sampleRate;
+    const startFrame = this.nextStartFrame();
+    const loopFrame = startFrame + this.buffers.intro.length;
+    const loopAt = loopFrame / rate;
     loop.loop = true;
-    this.session = { intro, loop, loopAt };
-    intro.start(start);
+    this.session = { intro, loop, loopFrame, loopAt };
+    intro.start(startFrame / rate);
     loop.start(loopAt);
     return true;
   }
@@ -73,10 +79,9 @@ export class AdaptiveMusicPlayer {
     const session = this.session;
     if (!session) return null;
     if (session.outro) return session.exitAt;
-    const duration = this.buffers.loop.duration;
-    const time = this.context.currentTime + LEAD_TIME;
-    const turns = Math.max(1, Math.ceil((time - session.loopAt) / duration));
-    const exitAt = session.loopAt + turns * duration;
+    const length = this.buffers.loop.length;
+    const turns = Math.max(1, Math.ceil((this.nextStartFrame() - session.loopFrame) / length));
+    const exitAt = (session.loopFrame + turns * length) / this.context.sampleRate;
     const outro = this.source(this.buffers.outro);
     Object.assign(session, { outro, exitAt });
     outro.addEventListener('ended', () => {
