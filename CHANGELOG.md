@@ -1,3 +1,12 @@
+# SoundMCP 2.4.1
+
+- Le catalogue associe chaque identifiant à son paramètre de rendu. Les descriptions MCP en français et en anglais précisent le choix du moteur de synthèse et la création de variantes.
+- L’étalonnage renvoie la graine utilisée pour reproduire les mesures. Ses conseils suivent la langue configurée.
+- La préécoute vérifie tous les passages avant de lancer le rendu et indique quel projet est en erreur. Les schémas précisent les résultats de préécoute, de lecture de partition et de livraison adaptative.
+- Répéter le même choix A/B laisse le profil de préférences intact. L’archivage et la restauration indiquent le chemin d’origine et, le cas échéant, le chemin du fichier archivé.
+
+---
+
 # SoundMCP 2.4.0
 
 - `compare_music_choices` classe les points de reprise d’un projet et livre des comparaisons à sonie alignée sur deux tours de boucle. La prise choisie se transmet à `finish_music`.

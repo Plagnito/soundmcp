@@ -1,6 +1,6 @@
 {
   "name": "@plagnito/soundmcp",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "Serveur MCP de composition instrumentale et de synthèse programmable : esquisses, sons personnels, retouches et exports WAV/MIDI.",
   "main": "src/index.js",
   "author": "Plagnito",
