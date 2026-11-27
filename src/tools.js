@@ -408,7 +408,7 @@ const TOOLS = [
     description: [
       'Compare deux à quatre timbres sur les mêmes notes, avec un WAV par prise à sonie alignée dans un nouveau dossier sous output_dir.',
       'Déclare une source par entrée de sounds, par exemple [{"instrument":"harp"},{"patch_path":"corde.soundmcp-patch.json"}]. Les notes communes, exprimées en secondes, se placent à la racine.',
-      'Avec blind, les prises sont anonymisées et reveal_path donne leur correspondance. Pour comparer des arrangements complets, utilise compare_music_choices.',
+      'Avec blind, les prises sont anonymisées et reveal_path donne leur correspondance. Pour générer deux variantes d’un même projet musical, utilise compare_music_choices.',
     ].join('\n'),
     inputSchema: { type: 'object', required: ['sounds'], properties: {
       sounds: { type: 'array', minItems: 2, maxItems: 4, items: { type: 'object', properties: SOUND_SOURCE_PROPERTIES, oneOf: SOUND_SOURCE_REQUIRED },
@@ -439,7 +439,7 @@ const TOOLS = [
     title: 'Préparer des esquisses instrumentales',
     description: [
       'Compose des esquisses instrumentales à partir d’un brief. Chaque appel écrit des projets éditables et leurs préécoutes à sonie alignée dans un nouveau sous-dossier.',
-      'Avec brief, variants choisit le nombre de prises de la même idée. Avec briefs, chaque entrée donne un morceau et les réglages explicites, comme tempo, priment sur le texte de chaque brief.',
+      'Avec brief, variants choisit le nombre de prises de la même idée. Avec briefs, chaque entrée donne un morceau. Les valeurs fournies pour tempo et duration_seconds priment sur celles du texte. Les exclusions du texte et de without se cumulent.',
       'Pour reprendre un morceau de la collection seul, réutilise son brief et son seed avec shared_options et variants=1. Passe le project_path retenu à finish_music. Pour exporter directement depuis un style, utilise create_music.',
     ].join('\n'),
     inputSchema: { type: 'object', properties: {
@@ -501,7 +501,7 @@ const TOOLS = [
     name: 'learn_music_preference',
     title: 'Mémoriser une préférence musicale',
     description: [
-      'Mémorise un choix explicite A ou B de l’auditeur après compare_music_choices avec accompaniment ou breath. Fourni avec cette comparaison, le manifeste comparison_path relie la lettre à la variante réellement entendue.',
+      'Mémorise un choix explicite A ou B de l’auditeur après compare_music_choices avec accompaniment ou breath. Le manifeste comparison_path relie A et B aux variantes rendues.',
       'Crée le profil local s’il est absent ou remplace le choix pour ce critère en conservant les autres. Un manifeste invalide ou un profil en cours de mise à jour renvoie une erreur.',
       'Par défaut, draft_music relit le profil local pour les prochaines esquisses. Pour employer un profil distinct, passe son chemin aux deux outils.',
     ].join('\n'),
@@ -558,8 +558,8 @@ const TOOLS = [
     name: 'create_music',
     title: 'Exporter un morceau depuis un style',
     description: [
-      'Compose et exporte un instrumental à partir d’un style de list_catalog, avec un arrangement facultatif. Pour composer à partir d’un brief, utilise draft_music.',
-      'Combine format=both et stems=true pour livrer le WAV, le MIDI et les pupitres séparés. Ajoute save_project=true pour récupérer project_path. Fournis editions avec loop_region pour exporter des variantes calées sur les mêmes mesures.',
+      'Compose et exporte un instrumental à partir d’un style de list_catalog(category=music), avec un arrangement facultatif. Pour composer à partir d’un brief, utilise draft_music.',
+      'Combine format=both et stems=true pour livrer le WAV, le MIDI et les pupitres séparés. Ajoute save_project=true pour récupérer project_path. Demande des variantes alignées avec editions et choisis leurs mesures avec loop_region si nécessaire.',
       'Écrit dans output_dir ou dans le dossier output de SoundMCP. Un même titre, ou le même couple style et seed sans titre, peut écraser les fichiers de même nom.',
     ].join('\n'),
     inputSchema: {
@@ -643,7 +643,7 @@ const TOOLS = [
     title: 'Retoucher un projet musical',
     description: [
       'Retouche un projet enregistré et exporte une copie éditable à côté du fichier source par défaut. Les retouches edits s’exécutent dans l’ordre, puis mix rééquilibre les pupitres.',
-      'Pour réécrire une mesure, relève ses accords avec inspect_score et fournis le numéro global de la mesure dans write_measure. Pour exporter des éditions alignées, combine editions et loop_region. stems requiert un export WAV.',
+      'Pour réécrire une mesure, relève ses accords avec inspect_score et fournis le numéro global de la mesure dans write_measure. Demande des variantes alignées avec editions et précise leur plage avec loop_region si nécessaire. stems requiert format=wav ou both.',
       'Préécoute le project_path de la copie avec preview_music. Utilise finish_music pour livrer la version retenue.',
     ].join('\n'),
     inputSchema: {
