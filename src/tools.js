@@ -571,8 +571,8 @@ const TOOLS = [
     name: 'play_sound',
     title: ui('Écouter des timbres', 'Audition sounds'),
     description: ui(
-      'Joue une phrase avec un timbre choisi par instrument, patch ou patch_path. Pour parcourir rapidement le nuancier, donne sounds seul comme source. Écrit un WAV par appel dans un nouveau sous-dossier. Pour jouer la même phrase avec plusieurs timbres à sonie égale, utilise compare_sounds.',
-      'Play a phrase using instrument, patch, or patch_path. Use sounds on its own as the source for a quick catalog tour. Writes one WAV per call in a new subdirectory. Use compare_sounds to compare the same phrase across sounds at matched loudness.',
+      'Écoute un timbre sur une phrase ou parcours le nuancier dans un seul WAV. Avec sounds, chaque timbre joue son exemple à la suite. Utilise markers pour atteindre un exemple dans le WAV. Pour comparer plusieurs timbres sur les mêmes notes à sonie égale, utilise compare_sounds. Chaque appel écrit son WAV dans un dossier unique sous output_dir.',
+      'Audition one sound on a phrase or browse the catalog in a single WAV. With sounds, each instrument plays its own example in sequence. Use markers to jump to an example in the WAV. To compare several sounds on the same notes at matched loudness, use compare_sounds. Each call writes its WAV in a unique folder under output_dir.',
     ),
     inputSchema: { type: 'object', properties: { ...SOUND_SOURCE_PROPERTIES, ...AUDITION_PROPERTIES, ...SOUND_LIST_PROPERTIES },
       oneOf: PLAY_SOUND_MODES },
@@ -603,20 +603,10 @@ const TOOLS = [
   {
     name: 'compare_sounds',
     title: ui('Comparer des timbres', 'Compare sounds'),
-    description: [
-      ui(
-        'Compare deux à quatre timbres sur les mêmes notes, avec un WAV par prise à sonie alignée dans un nouveau dossier sous output_dir.',
-        'Compare two to four sounds on the same notes. Writes one WAV per take at matched loudness in a new subdirectory of output_dir.',
-      ),
-      ui(
-        'Déclare une source par entrée de sounds, par exemple [{"instrument":"harp"},{"patch_path":"corde.soundmcp-patch.json"}]. Les notes communes, exprimées en secondes, se placent à la racine.',
-        'Provide one source per entry in sounds, for example [{"instrument":"harp"},{"patch_path":"string.soundmcp-patch.json"}]. Set the shared notes in seconds at the top level.',
-      ),
-      ui(
-        'Avec blind, les prises sont anonymisées et reveal_path donne leur correspondance. Pour générer deux variantes d’un même projet musical, utilise compare_music_choices.',
-        'blind hides the take identities and reveal_path provides their mapping. Use compare_music_choices for two variants of a musical project.',
-      ),
-    ].join('\n'),
+    description: ui(
+      'Prépare une comparaison à l’écoute de deux à quatre timbres sur la même phrase. Donne une source par entrée de sounds et place notes à la racine de l’appel pour les appliquer à toutes les prises. Écrit un WAV par timbre à sonie égale dans un dossier unique. Avec blind, ouvre reveal_path après le choix pour retrouver les timbres. Pour écouter un seul timbre, utilise play_sound. Pour comparer des arrangements, utilise compare_music_choices.',
+      'Prepare a listening comparison of two to four sounds on the same phrase. Give one source per sounds entry and set notes at the top level to apply them to every take. Writes one WAV per sound at matched loudness in a unique folder. With blind, open reveal_path after choosing to reveal the sounds. Use play_sound for one sound or compare_music_choices to compare arrangements.',
+    ),
     inputSchema: { type: 'object', required: ['sounds'], properties: {
       sounds: { type: 'array', minItems: 2, maxItems: 4, items: { type: 'object', properties: SOUND_SOURCE_PROPERTIES, oneOf: SOUND_SOURCE_REQUIRED },
         description: ui(
@@ -888,17 +878,10 @@ const TOOLS = [
   {
     name: 'analyze_music',
     title: ui('Mesurer un rendu musical', 'Analyze a music render'),
-    description: [
-      ui('Mesure la sonie, les crêtes, la saturation et la stéréo. Fournis un seul chemin local.', 'Measure loudness, peaks, clipping, and stereo. Supply one local path.'),
-      ui(
-        'Avec wav_path, mesure le fichier WAV existant tel quel. Avec project_path, calcule le rendu en mémoire pour analyser aussi les pupitres, les répétitions et les écarts au brief. Les deux modes sont en lecture seule.',
-        'wav_path measures the existing WAV as saved. project_path renders in memory to assess parts, repetition, and differences from the brief. Both modes are read-only.',
-      ),
-      ui(
-        'Utilise wav_path pour contrôler le master livré. Pour retrouver les notes et les accords d’une mesure, utilise inspect_score.',
-        'Use wav_path to check a delivered master. Use inspect_score to find a bar\'s notes and chords.',
-      ),
-    ].join('\n'),
+    description: ui(
+      'Contrôle la sonie, les crêtes, la saturation et la stéréo d’un seul fichier local. wav_path mesure le master livré tel quel. Utilise project_path pour diagnostiquer les pupitres ou les écarts au brief avant export. Le rendu reste en mémoire et la réponse contient les mesures. Pour écouter un timbre, utilise play_sound ou compare_sounds. Pour lire les notes et accords, utilise inspect_score.',
+      'Check loudness, peaks, clipping, and stereo for one local file. wav_path measures the delivered master as saved. Use project_path to diagnose parts or differences from the brief before export. Rendering stays in memory and the response contains measurements. Use play_sound or compare_sounds to audition timbres, or inspect_score to read notes and chords.',
+    ),
     inputSchema: { type: 'object', properties: { project_path: PROJECT_SCHEMA,
       wav_path: { type: 'string', description: ui(
         'Chemin d’un WAV RIFF mono ou stéréo, PCM 16/24/32 bits ou flottant 32 bits, de 8 à 96 kHz et d’au plus 603 secondes.',
@@ -910,8 +893,8 @@ const TOOLS = [
     name: 'inspect_score',
     title: ui('Lire la partition', 'Inspect the score'),
     description: ui(
-      'Lis les accords et les notes d’une plage de mesures, avec le temps écrit et le jeu réel. part filtre les notes et limit les pagine. La réponse contient toujours tous les accords de la plage. Pour continuer, passe next_offset dans offset avec la même plage et le même pupitre. Pour écouter, utilise preview_music. Pour réécrire une mesure, utilise edit_music avec edits[].type=write_measure.',
-      'Read chords and notes for a range of bars, with written and performed timing. part filters notes and limit paginates them. Each response includes all chords in the range. To continue, pass next_offset as offset with the same range and part. Use preview_music to listen or edit_music with edits[].type=write_measure to rewrite a bar.',
+      'Relève les accords et les notes d’une plage de mesures. Avec part=mel et limit=1, la réponse garde tous les accords de la plage et renvoie au plus une note par page. Reprends next_offset dans offset pour continuer. Pour écouter la plage, utilise preview_music. Pour réécrire une mesure, utilise edit_music avec edits[].type=write_measure.',
+      'Read the chords and notes in a range of bars. With part=mel and limit=1, the response keeps all chords in the range and returns at most one note per page. Pass next_offset as offset to continue. Use preview_music to hear the passage or edit_music with edits[].type=write_measure to rewrite a bar.',
     ),
     inputSchema: { type: 'object', required: ['project_path'], properties: { project_path: PROJECT_SCHEMA,
       start_bar: { ...REGION_SCHEMA.properties.start_bar, default: 1 },
