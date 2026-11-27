@@ -405,10 +405,15 @@ const TOOLS = [
   {
     name: 'compare_sounds',
     title: 'Comparer des timbres',
-    description: 'Évalue deux à quatre timbres avec la même phrase. Écrit un WAV séparé par timbre à sonie égale. Active blind pour mélanger les prises et placer les identités dans une clé séparée.',
+    description: [
+      'Compare deux à quatre timbres sur les mêmes notes, avec un WAV par prise à sonie alignée dans un nouveau dossier sous output_dir.',
+      'Déclare une source par entrée de sounds, par exemple [{"instrument":"harp"},{"patch_path":"corde.soundmcp-patch.json"}]. Les notes communes, exprimées en secondes, se placent à la racine.',
+      'Avec blind, les prises sont anonymisées et reveal_path donne leur correspondance. Pour comparer des arrangements complets, utilise compare_music_choices.',
+    ].join('\n'),
     inputSchema: { type: 'object', required: ['sounds'], properties: {
-      sounds: { type: 'array', minItems: 2, maxItems: 4, items: { type: 'object', properties: SOUND_SOURCE_PROPERTIES, oneOf: SOUND_SOURCE_REQUIRED } },
-      ...AUDITION_PROPERTIES, blind: { type: 'boolean' },
+      sounds: { type: 'array', minItems: 2, maxItems: 4, items: { type: 'object', properties: SOUND_SOURCE_PROPERTIES, oneOf: SOUND_SOURCE_REQUIRED },
+        description: 'Deux à quatre sources, une par prise. Indique instrument, patch ou patch_path pour chacune.' },
+      ...AUDITION_PROPERTIES, blind: { type: 'boolean', description: 'Mélange les prises à partir de seed et écrit leur correspondance dans reveal_path.' },
     } },
   },
   {
@@ -432,7 +437,11 @@ const TOOLS = [
   {
     name: 'draft_music',
     title: 'Préparer des esquisses instrumentales',
-    description: 'Explore une idée avec brief ou prépare une collection avec briefs. Chaque appel écrit les projets et les préécoutes à sonie alignée dans un nouveau dossier local. Utilise finish_music pour livrer le projet choisi, ou create_music pour exporter directement depuis un style.',
+    description: [
+      'Compose des esquisses instrumentales à partir d’un brief. Chaque appel écrit des projets éditables et leurs préécoutes à sonie alignée dans un nouveau sous-dossier.',
+      'Avec brief, variants choisit le nombre de prises de la même idée. Avec briefs, chaque entrée donne un morceau et les réglages explicites, comme tempo, priment sur le texte de chaque brief.',
+      'Pour reprendre un morceau de la collection seul, réutilise son brief et son seed avec shared_options et variants=1. Passe le project_path retenu à finish_music. Pour exporter directement depuis un style, utilise create_music.',
+    ].join('\n'),
     inputSchema: { type: 'object', properties: {
       brief: { ...DRAFT_BRIEF, description: 'Brief français ou anglais pour une seule idée musicale. Ex. « 75 secondes pour une exploration nocturne, piano feutré et montée progressive. »' },
       briefs: { type: 'array', minItems: 3, maxItems: 6, items: DRAFT_BRIEF,
@@ -491,9 +500,13 @@ const TOOLS = [
   {
     name: 'learn_music_preference',
     title: 'Mémoriser une préférence musicale',
-    description: 'Après un choix explicite de l’auditeur entre A et B, mémorise sa préférence d’accompagnement ou de respiration. Crée ou réécrit le profil local en remplaçant ce choix et en conservant les autres critères. draft_music lit ce profil pour les esquisses suivantes.',
+    description: [
+      'Mémorise un choix explicite A ou B de l’auditeur après compare_music_choices avec accompaniment ou breath. Fourni avec cette comparaison, le manifeste comparison_path relie la lettre à la variante réellement entendue.',
+      'Crée le profil local s’il est absent ou remplace le choix pour ce critère en conservant les autres. Un manifeste invalide ou un profil en cours de mise à jour renvoie une erreur.',
+      'Par défaut, draft_music relit le profil local pour les prochaines esquisses. Pour employer un profil distinct, passe son chemin aux deux outils.',
+    ].join('\n'),
     inputSchema: { type: 'object', required: ['comparison_path', 'chosen'], properties: {
-      comparison_path: { type: 'string', description: 'Chemin comparison_path renvoyé par compare_music_choices pour accompaniment ou breath. Pour build, la correspondance reveal_path sert à identifier la variante retenue.' },
+      comparison_path: { type: 'string', description: 'Chemin du manifeste comparison_path renvoyé par compare_music_choices pour accompaniment ou breath.' },
       chosen: { type: 'string', enum: ['A', 'B'], description: 'Lettre de la prise choisie explicitement par l’auditeur.' },
       profile_path: { type: 'string', description: 'Profil local à créer ou mettre à jour. À défaut, utilise le profil local configuré par SoundMCP.' },
     } },
@@ -501,9 +514,13 @@ const TOOLS = [
   {
     name: 'analyze_music',
     title: 'Mesurer un rendu musical',
-    description: 'Donne les mesures audio (LUFS, crêtes, saturation et stéréo) d’un WAV ou d’un projet. Pour un projet, vérifie aussi le niveau par pupitre, les sections, les répétitions, le respect du brief et l’historique.',
+    description: [
+      'Mesure la sonie, les crêtes, la saturation et la stéréo. Fournis un seul chemin local.',
+      'Avec wav_path, mesure le fichier WAV existant tel quel. Avec project_path, calcule le rendu en mémoire pour analyser aussi les pupitres, les répétitions et les écarts au brief. Les deux modes sont en lecture seule.',
+      'Utilise wav_path pour contrôler le master livré. Pour retrouver les notes et les accords d’une mesure, utilise inspect_score.',
+    ].join('\n'),
     inputSchema: { type: 'object', properties: { project_path: PROJECT_SCHEMA,
-      wav_path: { type: 'string', description: 'Chemin d’un WAV déjà rendu à mesurer directement.' },
+      wav_path: { type: 'string', description: 'Chemin d’un WAV RIFF mono ou stéréo, PCM 16/24/32 bits ou flottant 32 bits, de 8 à 96 kHz et d’au plus 603 secondes.' },
     }, oneOf: [{ required: ['project_path'] }, { required: ['wav_path'] }] },
   },
   {
@@ -521,7 +538,11 @@ const TOOLS = [
   {
     name: 'manage_outputs',
     title: 'Retrouver et ranger les sorties',
-    description: 'Retrouve les sorties enregistrées dans un dossier. Pour reprendre un morceau, appelle list avec file_type=project et state=active, puis réutilise path comme project_path. archive déplace un fichier dans l’archive locale et restore le remet en place si le chemin est libre.',
+    description: [
+      'Retrouve et range les sorties enregistrées par SoundMCP. Reprends le dossier managed_outputs.output_dir du rendu pour chercher ou déplacer ses fichiers.',
+      'Pour rouvrir un morceau, utilise action=list avec file_type=project et state=active, puis passe path comme project_path. Pour la page suivante, repasse next_offset dans offset avec les mêmes filtres.',
+      'Sur demande de l’utilisateur, archive déplace le fichier désigné par file_id. restore le remet à son chemin d’origine et échoue si un autre fichier occupe ce chemin.',
+    ].join('\n'),
     inputSchema: { type: 'object', required: ['action'], properties: {
       action: { type: 'string', enum: OUTPUT_ACTIONS, description: 'list retrouve les sorties, archive déplace un fichier, restore le remet à son chemin d’origine.' },
       output_dir: { type: 'string', description: 'Dossier utilisé lors de la génération, renvoyé dans managed_outputs.' },
@@ -536,7 +557,11 @@ const TOOLS = [
   {
     name: 'create_music',
     title: 'Exporter un morceau depuis un style',
-    description: 'Compose et exporte directement un instrumental depuis un identifiant style, avec un arrangement facultatif. Active save_project pour conserver le fichier éditable. Un export du même nom peut être remplacé. Pour explorer des arrangements depuis un brief, utilise draft_music.',
+    description: [
+      'Compose et exporte un instrumental à partir d’un style de list_catalog, avec un arrangement facultatif. Pour composer à partir d’un brief, utilise draft_music.',
+      'Combine format=both et stems=true pour livrer le WAV, le MIDI et les pupitres séparés. Ajoute save_project=true pour récupérer project_path. Fournis editions avec loop_region pour exporter des variantes calées sur les mêmes mesures.',
+      'Écrit dans output_dir ou dans le dossier output de SoundMCP. Un même titre, ou le même couple style et seed sans titre, peut écraser les fichiers de même nom.',
+    ].join('\n'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -616,7 +641,11 @@ const TOOLS = [
   {
     name: 'edit_music',
     title: 'Retoucher un projet musical',
-    description: 'Applique des retouches ciblées à un projet enregistré. Exécute edits dans l’ordre, puis applique le mix demandé. Écrit de nouveaux projets et exports à côté du fichier source par défaut. Pour réécrire une mesure, relève ses accords avec inspect_score. Préécoute ensuite la version retenue avec preview_music.',
+    description: [
+      'Retouche un projet enregistré et exporte une copie éditable à côté du fichier source par défaut. Les retouches edits s’exécutent dans l’ordre, puis mix rééquilibre les pupitres.',
+      'Pour réécrire une mesure, relève ses accords avec inspect_score et fournis le numéro global de la mesure dans write_measure. Pour exporter des éditions alignées, combine editions et loop_region. stems requiert un export WAV.',
+      'Préécoute le project_path de la copie avec preview_music. Utilise finish_music pour livrer la version retenue.',
+    ].join('\n'),
     inputSchema: {
       type: 'object', required: ['project_path'], properties: {
         project_path: PROJECT_SCHEMA,
@@ -649,7 +678,12 @@ const TOOLS = [
   {
     name: 'create_sfx',
     title: 'Créer ou reprendre un effet sonore',
-    description: 'Rend un effet ponctuel en WAV 16 bits. Choisis kind dans list_catalog(category=sfx) pour créer un effet. Donne source_file_id pour reprendre ses réglages et écrire une variante dans un nouveau sous-dossier. En mode kind, une sortie de même type et graine peut être remplacée.',
+    description: [
+      'Rend un effet ponctuel en WAV 16 bits. Pour un fond sonore continu, utilise create_ambience.',
+      'Pour créer un effet, choisis kind dans list_catalog(category=sfx), par exemple coin. Le même couple kind et seed dans le même output_dir écrase le WAV précédent.',
+      'Pour une variante, remplace kind par source_file_id. Reprends le file_id du WAV et son dossier dans source_output_dir. Indique uniquement les réglages à changer, par exemple volume=0.4. Le nouveau WAV est écrit dans un sous-dossier et la source est conservée.',
+      'Un identifiant inconnu dans ce dossier ou dépourvu de réglages compatibles renvoie une erreur.',
+    ].join('\n'),
     inputSchema: {
       type: 'object',
       properties: { ...PROCEDURAL_AUDIO_PROPERTIES,
@@ -661,7 +695,12 @@ const TOOLS = [
   {
     name: 'create_ambience',
     title: 'Créer ou reprendre une ambiance',
-    description: 'Rend une ambiance continue en WAV 16 bits avec raccord de boucle. Choisis kind dans list_catalog(category=ambiences) pour créer une ambiance. Donne source_file_id pour reprendre ses réglages et écrire une variante dans un nouveau sous-dossier. En mode kind, une sortie de même type et graine peut être remplacée.',
+    description: [
+      'Rend un fond sonore continu en WAV 16 bits bouclable. Pour un son ponctuel, utilise create_sfx.',
+      'Pour créer une ambiance, choisis kind dans list_catalog(category=ambiences), par exemple rain. Le même couple kind et seed dans le même output_dir écrase le WAV précédent, même si la durée change.',
+      'Pour une variante, remplace kind par source_file_id. Reprends le file_id du WAV et son dossier dans source_output_dir. Passe duration_seconds=20 pour obtenir une boucle de 20 secondes en conservant les autres réglages. Le nouveau WAV est écrit dans un sous-dossier et la source est conservée.',
+      'Un identifiant inconnu dans ce dossier ou dépourvu de réglages compatibles renvoie une erreur.',
+    ].join('\n'),
     inputSchema: {
       type: 'object',
       properties: { ...PROCEDURAL_AUDIO_PROPERTIES,
