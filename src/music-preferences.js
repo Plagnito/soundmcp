@@ -98,9 +98,12 @@ function rememberChoice(comparisonFile, selected, profileFile) {
   }
   const temporary = path.join(path.dirname(target), `.${randomUUID()}.json.tmp`);
   try {
-    const choices = { ...readPreferences(target, true), [criterion]: option };
-    fs.writeFileSync(temporary, `${JSON.stringify({ type: PROFILE, version: 1, choices }, null, 2)}\n`, { mode: 0o600 });
-    fs.renameSync(temporary, target);
+    const choices = readPreferences(target, true);
+    if (choices[criterion] !== option) {
+      choices[criterion] = option;
+      fs.writeFileSync(temporary, `${JSON.stringify({ type: PROFILE, version: 1, choices }, null, 2)}\n`, { mode: 0o600 });
+      fs.renameSync(temporary, target);
+    }
     return { profile_path: target, criterion, choice: option, choices };
   } finally {
     try {

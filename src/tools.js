@@ -720,20 +720,23 @@ const TOOLS = [
     name: 'finish_music',
     title: ui('Livrer un master', 'Render a master'),
     description: [
-      ui('Exporte le master d’un projet choisi. Chaque appel crée un sous-dossier unique à côté du projet par défaut et préserve les exports précédents.',
-        'Render the master of a selected project. Each call creates a unique subdirectory beside the project by default and preserves earlier exports.'),
-      ui('Avec format=midi, définis stems=false ou omets-le et omets adaptive. Pour livrer intro, boucle et sortie, utilise wav ou both avec adaptive.',
-        'For format=midi, set stems to false or omit it, and omit adaptive. Use wav or both with adaptive to deliver intro, loop, and outro.'),
-      ui('Passe files[].adaptive de compare_music_choices à adaptive. Le loop_region à la racine sert aux éditions.',
-        'Pass files[].adaptive from compare_music_choices as adaptive. The top-level loop_region is for editions.'),
-      ui('Pour vérifier un passage avant le rendu complet, utilise preview_music.',
-        'Use preview_music to check an excerpt before rendering the full master.'),
+      ui('Livre le master d’un projet choisi après draft_music ou edit_music. Pour écouter un extrait avant de livrer, utilise preview_music.',
+        'Render the master of a selected project after draft_music or edit_music. To audition an excerpt first, use preview_music.'),
+      ui('Chaque appel crée un nouveau dossier et préserve les exports précédents. report_path pointe vers le rapport JSON des fichiers livrés. Si le projet est illisible, reprends le project_path renvoyé par l’outil qui l’a créé.',
+        'Each call creates a new folder and preserves earlier exports. report_path points to the JSON delivery report. If the project cannot be read, reuse the project_path returned by the tool that created it.'),
     ].join('\n'),
     inputSchema: { type: 'object', required: ['project_path'], properties: { ...EXPORT_PROPERTIES, project_path: PROJECT_SCHEMA,
       format: { ...EXPORT_PROPERTIES.format, default: 'both' },
+      output_dir: { ...EXPORT_PROPERTIES.output_dir, description: ui(
+        'Dossier parent de la livraison. Par défaut, utilise le dossier du projet source.',
+        'Parent directory for the delivery. Defaults to the source project directory.',
+      ) },
       bit_depth: { ...EXPORT_PROPERTIES.bit_depth, default: 24 },
       sampling_rate: { ...SAMPLING_RATE, default: 48000 },
-      stems: { ...EXPORT_PROPERTIES.stems, description: ui('Ajoute des pistes WAV séparées par pupitre. Actif par défaut avec wav ou both.', 'Add separate WAV stems per part. Enabled by default with wav or both.') },
+      stems: { ...EXPORT_PROPERTIES.stems, description: ui(
+        'Ajoute des pistes WAV par pupitre. Actif par défaut avec wav ou both. Avec midi, omets stems ou passe false.',
+        'Add WAV stems per part. Enabled by default with wav or both. For midi, omit stems or set it to false.',
+      ) },
       cuts: { type: 'array', maxItems: 3, uniqueItems: true, items: { type: 'integer', enum: [15, 30, 60] },
         description: ui(
           'Formats courts supplémentaires, en secondes. Chaque montage commence sur un thème et se termine par une cadence.',
@@ -741,11 +744,14 @@ const TOOLS = [
         ) },
       adaptive: { type: 'object', required: ['loop_region'], additionalProperties: false,
         description: ui(
-          'Exporte une introduction, une boucle et une sortie en WAV avec des raccords adoucis et un manifeste en échantillons.',
-          'Export WAV intro, loop, and outro with smoothed joins and a manifest with sample positions.',
+          'Livre l’intro, la boucle et la sortie en WAV. Avec compare_music_choices (criterion=loop), passe l’objet adaptive de la prise choisie avec le project_path source. Requiert format=wav ou both.',
+          'Deliver WAV intro, loop, and outro. For compare_music_choices (criterion=loop), pass the selected take’s adaptive object with the source project_path. Requires format=wav or both.',
         ),
         properties: {
-          loop_region: { ...REGION_SCHEMA, description: ui('Mesures à répéter. Garde une mesure ou plus avant et après la boucle.', 'Bars to repeat. Leave at least one bar before and after the loop.') },
+          loop_region: { ...REGION_SCHEMA,
+            description: ui('Mesures à répéter. Garde au moins une mesure avant et après la boucle.', 'Bars to repeat. Leave at least one bar before and after the loop.'),
+            properties: { ...REGION_SCHEMA.properties, start_bar: { ...REGION_SCHEMA.properties.start_bar, minimum: 2 } },
+          },
           crossfade_ms: { ...NUMBER(5, MAX_CROSSFADE_MS), default: 25, description: ui(
             'Durée maximale du fondu de raccord en millisecondes. Les bornes temporelles restent fixes.',
             'Maximum crossfade length in milliseconds. Segment boundaries stay fixed.',
@@ -840,27 +846,27 @@ const TOOLS = [
     title: ui('Mémoriser une préférence musicale', 'Remember a music preference'),
     description: [
       ui(
-        'Mémorise un choix explicite A ou B de l’auditeur après compare_music_choices avec accompaniment ou breath. Le manifeste comparison_path relie A et B aux variantes rendues.',
-        'Save a listener\'s explicit A or B choice after compare_music_choices for accompaniment or breath. comparison_path maps A and B to the rendered variants.',
+        'Enregistre le choix A ou B de l’auditeur après une comparaison accompaniment ou breath. Chaque lettre désigne la prise de cette comparaison. Répéter le même choix conserve le profil sans le réécrire.',
+        'Save the listener’s A or B choice after an accompaniment or breath comparison. Each letter identifies a take from that comparison. Repeating the same choice leaves the profile file unchanged.',
       ),
       ui(
-        'Crée le profil local s’il est absent ou remplace le choix pour ce critère en conservant les autres. Un manifeste invalide ou un profil en cours de mise à jour renvoie une erreur.',
-        'Creates the local profile or updates this criterion while keeping other choices. An invalid manifest or a profile update already in progress returns an error.',
+        'Si le manifeste est invalide, relance compare_music_choices et fais écouter les nouvelles prises avant de mémoriser un choix. Si le profil est en cours de mise à jour, réessaie dans un instant.',
+        'If the manifest is invalid, run compare_music_choices again and audition the new takes before saving a choice. If the profile is being updated, retry shortly.',
       ),
       ui(
-        'Par défaut, draft_music relit le profil local pour les prochaines esquisses. Pour employer un profil distinct, passe son chemin aux deux outils.',
-        'By default, draft_music reads this profile for future drafts. To use a separate profile, pass its path to both tools.',
+        'draft_music applique le profil aux prochaines esquisses. Passe-lui use_preferences=false pour l’ignorer le temps d’un appel.',
+        'draft_music applies the profile to future drafts. Pass use_preferences=false to skip it for one draft.',
       ),
     ].join('\n'),
     inputSchema: { type: 'object', required: ['comparison_path', 'chosen'], properties: {
       comparison_path: { type: 'string', description: ui(
-        'Chemin du manifeste comparison_path renvoyé par compare_music_choices pour accompaniment ou breath.',
-        'Manifest path returned by compare_music_choices for accompaniment or breath.',
+        'Valeur comparison_path de compare_music_choices avec criterion=accompaniment ou breath. Elle relie la lettre choisie à la variante entendue.',
+        'comparison_path returned by compare_music_choices with criterion=accompaniment or breath. It maps the selected letter to the variant the listener heard.',
       ) },
       chosen: { type: 'string', enum: ['A', 'B'], description: ui('Lettre de la prise choisie explicitement par l’auditeur.', 'Letter of the take explicitly chosen by the listener.') },
       profile_path: { type: 'string', description: ui(
-        'Profil local à créer ou mettre à jour. À défaut, utilise le profil local configuré par SoundMCP.',
-        'Local profile to create or update. Defaults to the configured SoundMCP profile.',
+        'Profil JSON local à créer ou mettre à jour. Par défaut, utilise le profil SoundMCP configuré. Pour un autre profil, passe le même chemin à draft_music.',
+        'Local JSON profile to create or update. Defaults to the configured SoundMCP profile. For a separate profile, pass the same path to draft_music.',
       ) },
     } },
   },
@@ -914,16 +920,16 @@ const TOOLS = [
     title: ui('Retrouver et ranger les sorties', 'Find and manage outputs'),
     description: [
       ui(
-        'Retrouve et range les sorties enregistrées par SoundMCP. Reprends le dossier managed_outputs.output_dir du rendu pour chercher ou déplacer ses fichiers.',
-        'Find and organize files registered by SoundMCP. Use managed_outputs.output_dir from the render to locate or move its files.',
+        'Retrouve et range les sorties déjà enregistrées par SoundMCP dans un dossier de rendu.',
+        'Find and organize outputs already registered by SoundMCP in a render directory.',
       ),
       ui(
-        'Pour rouvrir un morceau, utilise action=list avec file_type=project et state=active, puis passe path comme project_path. Pour la page suivante, repasse next_offset dans offset avec les mêmes filtres.',
-        'To reopen a track, use action=list with file_type=project and state=active, then pass path as project_path. To get the next page, use next_offset as offset with the same filters.',
+        'Pour rouvrir un morceau, utilise list avec file_type=project et state=active. Passe le path du projet comme project_path à preview_music ou edit_music.',
+        'To reopen a track, use list with file_type=project and state=active. Pass the project’s path as project_path to preview_music or edit_music.',
       ),
       ui(
-        'Sur demande de l’utilisateur, archive déplace le fichier désigné par file_id. restore le remet à son chemin d’origine et échoue si un autre fichier occupe ce chemin.',
-        'At the user\'s request, archive moves the file identified by file_id. restore returns it to its original path and fails if another file is already there.',
+        'Sur demande de l’utilisateur, déplace un fichier avec archive et annule le déplacement avec restore. Répéter la même action conserve l’état atteint. Un fichier occupant la destination est préservé et l’appel échoue.',
+        'At the user’s request, move a file with archive and undo the move with restore. Repeating the same action preserves the resulting state. If another file occupies the destination, the call fails and leaves that file in place.',
       ),
     ].join('\n'),
     inputSchema: { type: 'object', required: ['action'], properties: {
@@ -931,14 +937,20 @@ const TOOLS = [
         'list retrouve les sorties, archive déplace un fichier, restore le remet à son chemin d’origine.',
         'list finds outputs, archive moves a file, and restore returns it to its original path.',
       ) },
-      output_dir: { type: 'string', description: ui('Dossier utilisé lors de la génération, renvoyé dans managed_outputs.', 'Directory used for generation, returned in managed_outputs.') },
-      file_id: { type: 'string', description: ui('Identifiant du fichier pour archive ou restore.', 'File ID for archive or restore.') },
+      output_dir: { type: 'string', description: ui(
+        'Valeur managed_outputs.output_dir du rendu ou output_dir de list. Sans valeur, utilise le dossier de sortie par défaut.',
+        'The render’s managed_outputs.output_dir or the output_dir returned by list. Defaults to the configured output directory.',
+      ) },
+      file_id: { type: 'string', description: ui(
+        'Identifiant renvoyé par list ou managed_outputs.files dans ce dossier. Requis pour archive et restore.',
+        'ID returned by list or managed_outputs.files in this directory. Required for archive and restore.',
+      ) },
       file_type: { type: 'string', enum: ['project'], description: ui('Pour list, ne retourne que les projets musicaux éditables enregistrés par SoundMCP.', 'With list, return only editable music projects registered by SoundMCP.') },
       state: { type: 'string', enum: OUTPUT_STATES, description: ui(
         'Pour list, limite les résultats aux fichiers actifs ou archivés. Par défaut, inclut les deux états.',
         'With list, filter active or archived files. Defaults to both states.',
       ) },
-      offset: { type: 'integer', minimum: 0, description: ui('Pour la page suivante, reprends next_offset en conservant le filtre.', 'For the next page, pass next_offset with the same filter.') },
+      offset: { type: 'integer', minimum: 0, default: 0, description: ui('Position de départ parmi les résultats filtrés pour list.', 'Start position among the filtered results for list.') },
       limit: { type: 'integer', minimum: 1, maximum: 100, default: 30, description: ui('Nombre maximal de fichiers renvoyés par list.', 'Maximum number of files returned by list.') },
     }, oneOf: [{ properties: { action: { const: 'list' } } },
       { properties: { action: { enum: ['archive', 'restore'] } }, required: ['file_id'] }] },
