@@ -107,6 +107,27 @@ function checkReplay() {
   assert(fs.existsSync(first.path));
 }
 
+function checkLinkedOutputRoot() {
+  const root = path.join(output_dir, 'real-output');
+  const alias = path.join(output_dir, 'linked-output');
+  fs.mkdirSync(root);
+  try {
+    fs.symlinkSync(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    if (process.platform === 'win32' && ['EPERM', 'EACCES'].includes(error.code)) return;
+    throw error;
+  }
+  const rendered = data('render_preset', { mode: 'effect', kind: 'coin', output_dir: alias }, 'compact');
+  const id = { render_id: rendered.managed_outputs.render_id, output_dir: alias };
+  const found = inventory('list', id);
+  assert.equal(found.files[0].path, rendered.path);
+  const archived = inventory('archive', id);
+  assert(archived.files[0].current_path.startsWith(alias + path.sep));
+  assert(fs.existsSync(archived.files[0].current_path));
+  const restored = inventory('restore', id);
+  assert.equal(restored.files[0].current_path, rendered.path);
+}
+
 function checkDelivery() {
   const source = data('create_music', { style: 'lofi', seed: 12, duration_seconds: 24, palette: 'synth',
     format: 'midi', save_project: true, on_conflict: 'reuse' });
@@ -187,6 +208,7 @@ function checkDelivery() {
 
 checkToolsets();
 checkReplay();
+checkLinkedOutputRoot();
 checkDelivery();
 if (process.env.SOUNDMCP_SCHEMA_OBSERVATIONS) {
   fs.writeFileSync(process.env.SOUNDMCP_SCHEMA_OBSERVATIONS, JSON.stringify(observations) + '\n');

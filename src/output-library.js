@@ -46,7 +46,7 @@ function library(outputDir, create = false) {
   const root = fs.realpathSync(outputDir);
   const base = directory(path.join(root, '.soundmcp-outputs'), create);
   if (!base) return undefined;
-  return { root, base, archive: directory(path.join(base, 'archive'), create) };
+  return { outputDir, root, base, archive: directory(path.join(base, 'archive'), create) };
 }
 
 function fingerprint(file) {
@@ -221,10 +221,12 @@ function outputRenderSettings(outputDir, id, tool) {
 
 function describeAsset(store, recordId, record, entry, index) {
   const id = `${recordId}:${index}`;
-  const { original, archived, active, saved } = locate(store, id, entry);
+  const { archived, active, saved } = locate(store, id, entry);
+  const original = inside(store.outputDir, entry.relative);
+  const archivePath = saved ? inside(store.outputDir, path.relative(store.root, archived)) : undefined;
   return { file_id: id, render_id: recordId, path: original, file_type: outputFileType(entry.relative),
     state: active ? 'active' : saved ? 'archived' : 'missing', tool: record.tool, created_at: record.created_at,
-    ...(active ? { current_path: original } : saved ? { current_path: archived, archive_path: archived } : {}) };
+    ...(active ? { current_path: original } : saved ? { current_path: archivePath, archive_path: archivePath } : {}) };
 }
 
 function describeRender(store, outputDir, renderId, record, related = false) {
