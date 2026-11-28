@@ -1,3 +1,15 @@
+# SoundMCP 2.5.0
+
+- Huit profils MCP permettent d’adapter le catalogue à la musique, aux sons ou aux deux. Le profil par défaut conserve les 18 outils et leurs définitions évaluées. Choisissez un autre profil avec `SOUNDMCP_TOOLSET` et redémarrez le serveur.
+- Chaque livraison reçoit un `render_id`. Dans les profils avancés, `manage_outputs` retrouve un fichier ou une livraison et peut archiver ou restaurer l’ensemble en conservant les liens entre le manifeste et les WAV.
+- Les clients MCP compatibles peuvent ouvrir les fichiers via les liens de ressources et lancer les parcours guidés pour comparer des timbres à l’aveugle ou livrer une boucle adaptative.
+- Les rendus de musique, d’effets et d’ambiances peuvent créer une sortie distincte ou reprendre un rendu identique avec `on_conflict`. L’inventaire indique la source et les chemins actuels.
+- Le paquet inclut les guides de production et la provenance des banques Studio. Les contrôles vérifient l’installation npm hors ligne, les schémas MCP et l’image Docker.
+
+[Guide français](https://github.com/Plagnito/soundmcp/blob/v2.5.0/docs/workflows.md) · [English guide](https://github.com/Plagnito/soundmcp/blob/v2.5.0/docs/workflows.en.md) · [Rapport TDQS du profil par défaut](https://tdqs.dev/reports/e9g7q2s5tc)
+
+---
+
 # SoundMCP 2.4.1
 
 - Le catalogue associe chaque identifiant à son paramètre de rendu. Les descriptions MCP en français et en anglais précisent le choix du moteur de synthèse et la création de variantes.
