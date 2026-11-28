@@ -13,14 +13,20 @@ const { ui } = require('./language');
 const fs = require('node:fs');
 const path = require('node:path');
 const readline = require('node:readline');
-const { TOOLS, callTool } = require('./tools');
+const { callTool, DEFAULT_OUTPUT_DIR } = require('./tools');
 const { INLINE_AUDIO_TOOLS } = require('./inline-audio');
+const { STUDIO_TOOLS } = require('./studio-tool-contracts');
+const { selectToolset, resolveToolCall } = require('./toolsets');
+const { SoundMcpError, errorDetails } = require('./tool-errors');
+const { RESOURCE_TEMPLATE, listPrompts, getPrompt, readOutputResource, attachOutputResources } = require('./mcp-workflows');
 
 const PKG = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
 const SUPPORTED_PROTOCOLS = ['2024-11-05', '2025-03-26', '2025-06-18'];
 const PROTOCOL_FALLBACK = '2025-06-18';
-const LEGACY_TOOLS = TOOLS.map(({ title, outputSchema, ...tool }) => {
+const TOOLSET = process.env.SOUNDMCP_TOOLSET?.trim() || 'full';
+const exposedTools = selectToolset(TOOLSET, STUDIO_TOOLS);
+const LEGACY_TOOLS = exposedTools.map(({ title, outputSchema, ...tool }) => {
   if (!INLINE_AUDIO_TOOLS.has(tool.name)) return tool;
   const { inline_audio, ...properties } = tool.inputSchema.properties;
   return { ...tool, inputSchema: { ...tool.inputSchema, properties } };
@@ -139,6 +145,29 @@ const INSTRUCTIONS = [
   ),
 ].join(' ');
 
+function profileInstructions() {
+  if (TOOLSET === 'full' || TOOLSET === 'studio') return INSTRUCTIONS;
+  const names = new Set(exposedTools.map(({ name }) => name));
+  const music = names.has('draft_music') && ui(
+    'Pars d’un brief avec draft_music ou rends un style avec create_music. Écoute un projet avec preview_music, vérifie ses mesures avec inspect_score, retouche la copie avec edit_music, puis livre avec finish_music.',
+    'Start from a brief with draft_music or render a style with create_music. Audition a project with preview_music, inspect bars with inspect_score, edit a copy with edit_music, and deliver with finish_music.',
+  );
+  const audition = names.has('audition_sound') ? ui(
+    'Écoute un timbre ou compare des prises avec audition_sound. Choisis mode=phrase, catalog ou comparison.',
+    'Audition a timbre or compare takes with audition_sound. Set mode to phrase, catalog, or comparison.',
+  ) : names.has('play_sound') && ui(
+    'Écoute un timbre avec play_sound ou compare des prises avec compare_sounds.',
+    'Hear one timbre with play_sound or compare takes with compare_sounds.',
+  );
+  const design = names.has('design_timbre') ? 'design_timbre (mode=create / vary)' : names.has('design_sound') && 'design_sound / vary_sound';
+  const presets = names.has('render_preset') ? 'render_preset (mode=effect / ambience)' : names.has('create_sfx') && 'create_sfx / create_ambience';
+  return [music, audition, design && ui(`Pour les patches, utilise ${design}.`, `For patches, use ${design}.`),
+    presets && ui(`Pour les effets et ambiances, utilise ${presets}.`, `For effects and ambience, use ${presets}.`),
+    ui('Trouve les presets dans list_catalog et les rendus existants dans manage_outputs. Garde render_id pour retrouver la livraison entière.',
+      'Find built-in presets with list_catalog and existing renders with manage_outputs. Keep render_id to recover a whole delivery.'),
+  ].filter(Boolean).join(' ');
+}
+
 const log = (...a) => {
   process.stderr.write(`[soundmcp] ${a.join(' ')}\n`);
 };
@@ -152,12 +181,12 @@ const respond = (id, result) => {
   send({ jsonrpc: '2.0', id, result });
 };
 
-const respondError = (id, code, message) => {
+const respondError = (id, code, message, data) => {
   if (id === undefined || id === null) {
     log(ui(`erreur sans destinataire: ${code} ${message}`, `error without a request ID: ${code} ${message}`));
     return;
   }
-  send({ jsonrpc: '2.0', id, error: { code, message } });
+  send({ jsonrpc: '2.0', id, error: { code, message, ...(data && { data }) } });
 };
 
 /* ---------------------------------- handlers ---------------------------------- */
@@ -167,9 +196,9 @@ function initializeResult(params) {
   const protocolVersion = SUPPORTED_PROTOCOLS.includes(requested) ? requested : PROTOCOL_FALLBACK;
   return {
     protocolVersion,
-    capabilities: { tools: { listChanged: false } },
+    capabilities: { tools: { listChanged: false }, resources: {}, prompts: {} },
     serverInfo: { name: 'soundmcp', version: PKG.version },
-    instructions: INSTRUCTIONS,
+    instructions: profileInstructions(),
   };
 }
 
@@ -195,24 +224,38 @@ async function handleRequest(msg) {
       return;
 
     case 'tools/list':
-      respond(id, { tools: negotiatedProtocol === PROTOCOL_FALLBACK ? TOOLS : LEGACY_TOOLS });
+      respond(id, { tools: negotiatedProtocol === PROTOCOL_FALLBACK ? exposedTools : LEGACY_TOOLS });
       return;
 
     case 'tools/call': {
-      const name = params && params.name;
+      const requested = params && params.name;
       const input = (params && params.arguments) || {};
-      const args = negotiatedProtocol !== PROTOCOL_FALLBACK && INLINE_AUDIO_TOOLS.has(name)
-        ? { ...input, inline_audio: false } : input;
       try {
+        if (typeof input !== 'object' || Array.isArray(input)) throw new SoundMcpError('INCOMPATIBLE_PARAMETERS', ui(
+          'Les paramètres de l’outil doivent former un objet.', 'Tool arguments must be an object.',
+        ));
+        const { name, args: resolved } = resolveToolCall(requested, input, STUDIO_TOOLS);
+        if (TOOLSET === 'full' && name === 'manage_outputs' &&
+            (resolved.action === 'get' || (resolved.render_id !== undefined && resolved.action !== 'list'))) {
+          throw new SoundMcpError('INCOMPATIBLE_PARAMETERS', ui(
+            'Cette opération sur les livraisons est exposée dans le profil studio.',
+            'This delivery operation is exposed in the studio toolset.',
+          ), 'SOUNDMCP_TOOLSET=studio');
+        }
+        const args = negotiatedProtocol !== PROTOCOL_FALLBACK && INLINE_AUDIO_TOOLS.has(name)
+          ? { ...resolved, inline_audio: false } : resolved;
         const result = await callTool(name, args);
         if (negotiatedProtocol !== PROTOCOL_FALLBACK && result.structuredContent !== undefined) {
           result.content.push({ type: 'text', text: JSON.stringify(result.structuredContent) });
         }
+        if (negotiatedProtocol === PROTOCOL_FALLBACK) attachOutputResources(result);
         respond(id, result);
       } catch (err) {
-        log(`${ui('outil', 'tool')} ${name}: ${err.message}`);
+        const error = errorDetails(err);
+        log(`${ui('outil', 'tool')} ${requested}: ${error.message}`);
         respond(id, {
-          content: [{ type: 'text', text: `❌ ${err.message}` }],
+          content: [{ type: 'text', text: `❌ ${error.message}${error.hint ? `\n${error.hint}` : ''}` }],
+          _meta: { 'soundmcp/error': error },
           isError: true,
         });
       }
@@ -227,8 +270,30 @@ async function handleRequest(msg) {
       respond(id, { resources: [] });
       return;
 
+    case 'resources/templates/list':
+      respond(id, { resourceTemplates: [RESOURCE_TEMPLATE] });
+      return;
+
+    case 'resources/read':
+      try {
+        respond(id, readOutputResource(params?.uri, DEFAULT_OUTPUT_DIR));
+      } catch (err) {
+        const problem = errorDetails(err);
+        respondError(id, -32002, problem.message, problem);
+      }
+      return;
+
     case 'prompts/list':
-      respond(id, { prompts: [] });
+      respond(id, { prompts: listPrompts(exposedTools) });
+      return;
+
+    case 'prompts/get':
+      try {
+        respond(id, getPrompt(params?.name, params?.arguments ?? {}, exposedTools));
+      } catch (err) {
+        const problem = errorDetails(err);
+        respondError(id, -32602, problem.message, problem);
+      }
       return;
 
     case 'completion/complete':
@@ -286,8 +351,7 @@ function main() {
   });
 
   rl.on('close', () => {
-    log(ui('stdin fermé, arrêt.', 'stdin closed, stopping.'));
-    process.exit(0);
+    queue.finally(() => log(ui('stdin fermé, arrêt.', 'stdin closed, stopping.')));
   });
 
   process.on('SIGINT', () => process.exit(0));

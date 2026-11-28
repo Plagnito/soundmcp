@@ -1,0 +1,61 @@
+name: SoundMCP workflows
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [18, 22]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+
+  package-and-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install jsonschema==4.26.0
+      - run: npm run check:release -- tmp/release-check
+      - run: node scripts/workflow-quality.js
+        env:
+          SOUNDMCP_SCHEMA_OBSERVATIONS: tmp/schema-observations.json
+      - run: python scripts/verify-tool-schemas.py tmp/release-check/toolsets tmp/schema-observations.json
+      - name: Lint the actual packaged toolsets
+        run: |
+          mkdir -p tmp/tdqs-lint
+          for listing in tmp/release-check/toolsets/*.json; do
+            npx --yes mcp-tdqs@0.2.0 lint --file "$listing" --format json --fail-on error --output "tmp/tdqs-lint/$(basename "$listing")"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: soundmcp-release-check
+          path: |
+            tmp/release-check/release-manifest.json
+            tmp/release-check/toolsets/
+            tmp/tdqs-lint/
+      - name: Verify the image used for Glama
+        run: |
+          docker build -t soundmcp-check .
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' |
+            docker run --rm -i soundmcp-check |
+            node -e 'const assert = require("node:assert/strict"); const r = JSON.parse(require("node:fs").readFileSync(0,"utf8")); assert.equal(r.result.tools.length,18)'

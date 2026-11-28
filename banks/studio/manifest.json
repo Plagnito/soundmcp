@@ -3186,19 +3186,23 @@
   "sources": {
     "VCSL": {
       "repository": "sgossner/VCSL",
-      "commit": "c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e"
+      "commit": "c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e",
+      "license": "CC0-1.0"
     },
     "VSCO-2-CE": {
       "repository": "sgossner/VSCO-2-CE",
-      "commit": "440300901dfe9275fd84e0b7763af1f8443ae62e"
+      "commit": "440300901dfe9275fd84e0b7763af1f8443ae62e",
+      "license": "CC0-1.0"
     },
     "virtuosity_drums": {
       "repository": "sfzinstruments/virtuosity_drums",
-      "commit": "9f04cf9a734527edfbb0a4eee1f674e45bbf71bc"
+      "commit": "9f04cf9a734527edfbb0a4eee1f674e45bbf71bc",
+      "license": "CC0-1.0"
     },
     "shinyguitar": {
       "repository": "sfzinstruments/karoryfer.shinyguitar",
-      "commit": "57243cca85277dbcc120ce17c6178032f93c80f3"
+      "commit": "57243cca85277dbcc120ce17c6178032f93c80f3",
+      "license": "CC0-1.0"
     }
   }
 }

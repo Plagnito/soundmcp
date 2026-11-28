@@ -2,6 +2,7 @@
 /output/
 /tmp/
 /debug.log
+__pycache__/
 /banks/studio/*.pcm
 /examples/godot-adaptive/.godot/
 /examples/godot-adaptive/generated/

@@ -10,6 +10,7 @@ const { ui } = require('./language');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
+const { createHash } = require('node:crypto');
 const { createSong } = require('./composer');
 const { renderSong, writeWav, INSTRUMENTS } = require('./dsp');
 const { writeMidi } = require('./midi');
@@ -39,7 +40,8 @@ const { calibrateSound, loadCalibrations, applyCalibrations } = require('./sound
 const { mixSong } = require('./automatic-mix');
 const { CONTOURS, MAX_BEFORE, buildWindow, shapeBuild } = require('./build-shaping');
 const { CHOICES, PREFERENCES, readPreferences, applyPreference, withPreferences, choiceManifest, rememberChoice } = require('./music-preferences');
-const { ACTIONS: OUTPUT_ACTIONS, STATES: OUTPUT_STATES, recordOutputs, outputRenderSettings, manageOutputs } = require('./output-library');
+const { ACTIONS: OUTPUT_ACTIONS, STATES: OUTPUT_STATES, recordOutputs, outputRenderSettings, manageOutputs, findReplay } = require('./output-library');
+const { SoundMcpError } = require('./tool-errors');
 const { CATALOG_CATEGORIES, toolContract } = require('./tool-contracts');
 const { appendInlineAudio, INLINE_AUDIO_TOOLS } = require('./inline-audio');
 const { MAX_CROSSFADE_MS, planAdaptiveMusic, exportAdaptiveMusic } = require('./adaptive-music');
@@ -52,6 +54,8 @@ const OUTPUT_TOOLS = new Set(['design_sound', 'calibrate_sound', 'play_sound', '
   'draft_music', 'create_music', 'edit_music', 'mix_music', 'preview_music', 'compare_music_choices', 'compare_builds',
   'finish_music', 'create_sfx', 'create_ambience']);
 const PROJECT_OUTPUT_TOOLS = new Set(['edit_music', 'mix_music', 'finish_music']);
+const CONFLICT_TOOLS = new Set(['create_music', 'create_sfx', 'create_ambience']);
+const CONFLICT_POLICIES = ['replace', 'unique', 'reuse'];
 const DEFAULT_PROFILE = process.env.SOUNDMCP_PROFILE_PATH || path.join(os.homedir(), '.soundmcp', 'preferences.soundmcp.json');
 const SR_CHOICES = [22050, 44100, 48000];
 
@@ -1886,7 +1890,9 @@ function compareBuilds(args) {
 }
 
 function analyzeMusic(args) {
-  if ((args.project_path === undefined) === (args.wav_path === undefined)) throw new Error(ui('Indique un project_path ou un wav_path.', 'Supply a project_path or a wav_path.'));
+  if ((args.project_path === undefined) === (args.wav_path === undefined)) throw new SoundMcpError('INCOMPATIBLE_PARAMETERS',
+    ui('Indique un project_path ou un wav_path.', 'Supply a project_path or a wav_path.'),
+    ui('Utilise wav_path pour mesurer un WAV livré, project_path pour diagnostiquer le projet.', 'Use wav_path to measure a delivered WAV, or project_path to diagnose the project.'));
   let report;
   if (args.wav_path !== undefined) {
     if (typeof args.wav_path !== 'string' || !args.wav_path.trim()) throw new Error(ui('Chemin WAV invalide.', 'Invalid WAV path.'));
@@ -1982,7 +1988,8 @@ function proceduralAudio(name, args) {
   const catalog = isAmbience ? AMBIENCE_KINDS : SFX_KINDS;
   const generator = isAmbience ? createAmbience : createSfx;
   const sourceId = args.source_file_id;
-  if (sourceId !== undefined && args.kind !== undefined) throw new Error(ui('Indique kind ou source_file_id.', 'Supply kind or source_file_id.'));
+  if (sourceId !== undefined && args.kind !== undefined) throw new SoundMcpError('INCOMPATIBLE_PARAMETERS',
+    ui('Indique kind ou source_file_id.', 'Supply kind or source_file_id.'));
   const root = outputDirectory(args.output_dir ?? args.source_output_dir);
   const source = sourceId === undefined ? {} : outputRenderSettings(outputDirectory(args.source_output_dir, root), sourceId, name);
   const kind = source.kind ?? String(args.kind || '').trim();
@@ -2011,7 +2018,8 @@ function proceduralAudio(name, args) {
       ...render_settings, pitch_semitones: sfx.pitchSemitones, attack_ms: sfx.attackMs,
     }, { volume, outputDir: root, ...tech });
   }
-  const outputDir = sourceId === undefined ? root : newFolder(root, `${kind}-variante`);
+  const unique = args.on_conflict === 'unique' || args.on_conflict === 'reuse';
+  const outputDir = sourceId !== undefined || unique ? newFolder(root, sourceId === undefined ? kind : `${kind}-variante`) : root;
   const render = generator(kind, { seed, volume, durationSec, outputDir, ...tech, ...sfx });
   const text = [
     `${isAmbience ? ui('🌫️ Ambiance', '🌫️ Ambience') : '🔊 SFX'} ${ui(`« ${kind} »`, `“${kind}”`)} · ${render.desc}`,
@@ -2049,7 +2057,8 @@ function runTool(name, args) {
   if (name === 'list_catalog') return listCatalog(args.category);
   if (name === 'manage_outputs') {
     const result = manageOutputs(outputDirectory(args.output_dir), args);
-    const text = result.files ? result.files.map(({ file_id, state, path }) => `- ${file_id} · ${state} · ${path}`).join('\n') : `${result.state} · ${result.path}`;
+    const text = result.files ? result.files.map(({ file_id, state, path, current_path }) => `- ${file_id} · ${state} · ${current_path ?? path}`).join('\n')
+      : `${result.state} · ${result.current_path ?? result.path}`;
     return resultText(text || ui('Aucune sortie enregistrée dans ce dossier.', 'No outputs registered in this directory.'), result);
   }
   if (name === 'preview_sounds') return previewSounds(args);
@@ -2095,7 +2104,8 @@ function runTool(name, args) {
     const { song, mix } = production(arranged, args, loadCalibrations(args.calibration_paths), preferencesFor(args, false));
     const base = args.title ? slug(args.title) : `music-${styleId}-${seed}`;
 
-    const exported = exportMusic(song, outputs, outputDir, base, args);
+    const unique = args.on_conflict === 'unique' || args.on_conflict === 'reuse';
+    const exported = exportMusic(song, outputs, unique ? newFolder(outputDir, base) : outputDir, base, args);
     const result = { ...exported, ...(mix.length ? { mix } : {}) };
     const text = musicSummaryText(result.meta, result.files, result.audio);
     return {
@@ -2137,12 +2147,63 @@ function runTool(name, args) {
 
   if (name === 'create_sfx' || name === 'create_ambience') return proceduralAudio(name, args);
 
-  throw new Error(ui(`Outil inconnu: ${name}. Disponibles: ${TOOLS.map((t) => t.name).join(', ')}.`, `Unknown tool: ${name}. Available: ${TOOLS.map((t) => t.name).join(', ')}.`));
+  throw new SoundMcpError('UNKNOWN_TOOL', ui(`Outil inconnu: ${name}. Disponibles: ${TOOLS.map((t) => t.name).join(', ')}.`,
+    `Unknown tool: ${name}. Available: ${TOOLS.map((t) => t.name).join(', ')}.`));
+}
+
+function orderedJson(value) {
+  if (Array.isArray(value)) return value.map(orderedJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map((name) => [name, orderedJson(value[name])]));
+}
+
+function replayKey(name, { on_conflict: ignored, ...args }) {
+  const hash = createHash('sha256');
+  hash.update(JSON.stringify([require('../package.json').version, ui('fr', 'en'), name, orderedJson(args)]));
+  if (name === 'create_music') {
+    const dependencies = ['patch_paths', 'calibration_paths'].flatMap((field) => Array.isArray(args[field]) ? args[field] : []);
+    if (args.use_preferences !== false) {
+      const profile = args.profile_path ?? (args.use_preferences ? DEFAULT_PROFILE : undefined);
+      if (typeof profile === 'string') dependencies.push(profile);
+    }
+    for (const file of dependencies.filter((value) => typeof value === 'string')) {
+      hash.update('\0' + path.resolve(file) + '\0');
+      if (fs.existsSync(file)) hash.update(fs.readFileSync(file));
+    }
+  }
+  return hash.digest('hex');
+}
+
+function renderSource(name, args, data, outputDir) {
+  const source = {};
+  const project = args.project_path ?? args.source_excerpt?.project_path;
+  if (typeof project === 'string') source.project_path = path.resolve(project);
+  if (typeof args.patch_path === 'string') source.patch_path = path.resolve(args.patch_path);
+  if (typeof args.source_file_id === 'string') {
+    source.file_id = args.source_file_id;
+    source.render_id = args.source_file_id.split(':')[0];
+    source.output_dir = outputDirectory(args.source_output_dir, outputDir);
+  }
+  if (name === 'create_music') {
+    const { output_dir: ignored, on_conflict: ignoredPolicy, ...settings } = args;
+    source.settings = { ...settings, seed: data.meta.seed ?? args.seed };
+  }
+  return Object.keys(source).length ? source : undefined;
 }
 
 async function callTool(name, args = {}) {
   const inline = INLINE_AUDIO_TOOLS.has(name) ? args.inline_audio : undefined;
-  if (inline !== undefined && typeof inline !== 'boolean') throw new Error(ui('inline_audio attend true ou false.', 'inline_audio must be true or false.'));
+  if (inline !== undefined && typeof inline !== 'boolean') {
+    throw new SoundMcpError('INCOMPATIBLE_PARAMETERS', ui('inline_audio attend true ou false.', 'inline_audio must be true or false.'));
+  }
+  const conflict = CONFLICT_TOOLS.has(name) ? args.on_conflict : undefined;
+  if (conflict !== undefined && !CONFLICT_POLICIES.includes(conflict)) throw new SoundMcpError('INCOMPATIBLE_PARAMETERS', ui(
+    'on_conflict attend replace, unique ou reuse.', 'on_conflict must be replace, unique, or reuse.',
+  ));
+  const replayRoot = conflict === 'reuse' ? outputDirectory(args.output_dir ?? (name === 'create_music' ? undefined : args.source_output_dir)) : undefined;
+  const key = replayRoot && replayKey(name, args);
+  const replay = key && findReplay(replayRoot, key);
+  if (replay) return replay;
   const result = runTool(name, args);
   if (inline) appendInlineAudio(name, result);
   if (!OUTPUT_TOOLS.has(name)) return result;
@@ -2151,13 +2212,16 @@ async function callTool(name, args = {}) {
   const files = [...(data.files ?? []), ...(data.versions ?? []).flatMap(({ files }) => files)];
   const takes = [...(data.candidates ?? []), ...(data.sounds ?? []), ...(data.reference ? [data.reference] : [])];
   const paths = [data.path, data.preview_path, data.patch_path, data.calibration_path, data.report_path, data.reveal_path, data.comparison_path,
+    data.adaptive?.manifest_path,
     ...files.flatMap(({ path, project_path }) => [path, project_path]), ...(variants ?? []).map(({ path }) => path),
     ...takes.flatMap(({ preview_path, project_path, patch_path }) => [preview_path, project_path, patch_path])].filter(Boolean);
   const fallback = PROJECT_OUTPUT_TOOLS.has(name) ? path.dirname(path.resolve(args.project_path)) : DEFAULT_OUTPUT_DIR;
   const outputDir = outputDirectory(args.output_dir ?? (data.render_settings || variants ? args.source_output_dir : undefined), fallback);
   try {
     const settingsByFile = variants && new Map(variants.map(({ path, render_settings }) => [path, render_settings]));
-    const tracked = recordOutputs(outputDir, name, paths, data.render_settings, settingsByFile);
+    const tracked = recordOutputs(outputDir, name, paths, data.render_settings, settingsByFile, {
+      source: renderSource(name, args, data, outputDir), replay: key ? { key, result } : undefined,
+    });
     if (tracked) data.managed_outputs = tracked;
   } catch (error) {
     data.output_management_warning = error.message;
@@ -2169,5 +2233,7 @@ module.exports = {
   TOOLS,
   callTool,
   DEFAULT_OUTPUT_DIR,
+  CONFLICT_TOOLS,
+  CONFLICT_POLICIES,
   listStylesText,
 };

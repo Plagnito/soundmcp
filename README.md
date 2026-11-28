@@ -1,6 +1,6 @@
 # SoundMCP 🎵
 
-[English guide](README.en.md)
+[English guide](README.en.md) · [Profils, recettes et contrôles de release](docs/workflows.md)
 
 SoundMCP compose des instrumentaux sans voix et génère des effets sonores et des ambiances pour les jeux et les médias. Le moteur tourne en local avec Node.js.
 
