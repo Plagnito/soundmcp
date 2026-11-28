@@ -245,7 +245,7 @@ def main():
             print(f'{len(entries)} prises prêtes', flush=True)
     used = {entry['source'] for entry in entries}
     payload = dict(version=1 if args.extension else 3, rate=RATE, sha256=hashlib.sha256(packed).hexdigest(), samples=entries,
-                   sources={name: dict(repository=repo, commit=commit, **({'license': 'CC0-1.0'} if args.extension else {}))
+                   sources={name: dict(repository=repo, commit=commit, license='CC0-1.0')
                             for name, (repo, commit) in SOURCES.items() if name in used})
     write_atomically(BANK / ('extension.pcm' if args.extension else 'studio.pcm'), packed)
     write_atomically(BANK / ('extension.json' if args.extension else 'manifest.json'), (json.dumps(payload, indent=2) + '\n').encode('utf-8'))

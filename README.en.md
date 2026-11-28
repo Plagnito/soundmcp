@@ -1,6 +1,6 @@
 # SoundMCP
 
-[Documentation française](README.md) · [Changelog](CHANGELOG.md)
+[Documentation française](README.md) · [Toolsets, recipes, and release checks](docs/workflows.en.md) · [Changelog](CHANGELOG.md)
 
 SoundMCP composes instrumental music and generates sound effects and looping ambiences for games and media. It runs locally on Node.js 18 or later. The Studio palette includes recorded instruments.
 

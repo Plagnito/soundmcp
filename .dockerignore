@@ -1,0 +1,11 @@
+**
+!Dockerfile
+!LICENSE
+!package.json
+!src/
+!src/**
+!banks/
+!banks/studio/
+!banks/studio/*.json
+!banks/studio/*.pcm.br
+!banks/studio/CREDITS.md
